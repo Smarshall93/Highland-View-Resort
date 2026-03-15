@@ -8,6 +8,7 @@ interface AuthState {
   logout: () => void;
   checkSession: () => boolean;
   updateCurrentUser: (updates: Partial<User>) => void;
+  importAuthData: (data: { user: User | null; expiresAt: number | null }) => void;
 }
 const hybridStorage: StateStorage = {
   getItem: (name: string): string | null => {
@@ -52,16 +53,20 @@ export const useAuthStore = create<AuthState>()(
       },
       logout: () => set({ user: null, expiresAt: null }),
       checkSession: () => {
-        const { expiresAt, logout } = get();
+        const { expiresAt } = get();
         if (expiresAt && Date.now() > expiresAt) {
-          logout();
+          set({ user: null, expiresAt: null });
           return false;
         }
         return true;
       },
       updateCurrentUser: (updates) => set((state) => ({
         user: state.user ? { ...state.user, ...updates } : null
-      }))
+      })),
+      importAuthData: (data) => set({
+        user: data.user,
+        expiresAt: data.expiresAt
+      })
     }),
     {
       name: 'synqwork-auth-storage',

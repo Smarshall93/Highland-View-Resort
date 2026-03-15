@@ -1,9 +1,8 @@
 import React from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { 
-  LayoutDashboard, Clock, CheckSquare, QrCode, Settings, Users, LogOut, 
-  HelpCircle, FileText, UserCircle, MapPin, Map as MapIcon, Mountain, 
-  Calendar, MessageSquare, Printer 
+import {
+  LayoutDashboard, Clock, CheckSquare, QrCode, Settings, Users, LogOut,
+  FileText, Mountain, Calendar, MessageSquare, Printer, ShieldCheck
 } from "lucide-react";
 import {
   Sidebar,
@@ -18,6 +17,8 @@ import {
   SidebarMenuButton,
 } from "@/components/ui/sidebar";
 import { useAuthStore } from "@/store/authStore";
+import { useDataStore } from "@/store/dataStore";
+import { Badge } from "@/components/ui/badge";
 export function AppSidebar(): JSX.Element {
   const location = useLocation();
   const isActive = (path: string) => location.pathname === path;
@@ -27,10 +28,12 @@ export function AppSidebar(): JSX.Element {
   const logout = useAuthStore(s => s.logout);
   const navigate = useNavigate();
   const handleLogout = () => {
+    // Explicitly clear local data on logout to prevent cross-user leakage in localStorage
+    useDataStore.getState().clearLocalData();
     logout();
     navigate('/login');
   };
-  const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager';
+  const canViewManagement = userRole === 'admin' || userRole === 'manager' || userRole === 'owner';
   const getInitials = (name?: string) => {
     if (!name) return 'U';
     return name.split(/\s+/).filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase();
@@ -95,7 +98,7 @@ export function AppSidebar(): JSX.Element {
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
-            {isManagerOrAdmin && (
+            {canViewManagement && (
               <>
                 <SidebarMenuItem>
                   <SidebarMenuButton asChild isActive={isActive("/qr-forms")} tooltip="Form Builder">
@@ -121,37 +124,11 @@ export function AppSidebar(): JSX.Element {
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
-              </>
-            )}
-          </SidebarMenu>
-        </SidebarGroup>
-        <SidebarSeparator />
-        <SidebarGroup>
-          <SidebarGroupLabel>Facility</SidebarGroupLabel>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton asChild isActive={isActive("/map")} tooltip="Resort Map">
-                <Link to="/map">
-                  <MapIcon />
-                  <span>Interactive Map</span>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            {isManagerOrAdmin && (
-              <>
                 <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={isActive("/work-sites")} tooltip="Work Sites">
-                    <Link to="/work-sites">
-                      <MapPin />
-                      <span>Geofenced Sites</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-                <SidebarMenuItem>
-                  <SidebarMenuButton asChild isActive={isActive("/users")} tooltip="Team Directory">
-                    <Link to="/users">
-                      <Users />
-                      <span>Team Directory</span>
+                  <SidebarMenuButton asChild isActive={isActive("/settings")} tooltip="Control Panel">
+                    <Link to="/settings">
+                      <Settings />
+                      <span>Resort Settings</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -160,7 +137,13 @@ export function AppSidebar(): JSX.Element {
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
+      <SidebarFooter className="p-4 space-y-4">
+        <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+               <ShieldCheck className="h-3 w-3 text-emerald-600" />
+               <span className="text-[10px] font-black uppercase tracking-widest text-emerald-600">Local Data Protected</span>
+            </div>
+        </div>
         <Link to="/profile" className="flex items-center gap-3 rounded-xl border bg-card p-3 shadow-sm mb-2 hover:bg-muted/50 transition-colors">
           <div className="flex h-9 w-9 items-center justify-center rounded-full bg-secondary overflow-hidden shrink-0">
             {userAvatarUrl ? (

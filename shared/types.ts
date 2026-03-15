@@ -2,8 +2,13 @@ export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   error?: string;
+  meta?: {
+    total?: number;
+    cursor?: string | null;
+    page?: number;
+  };
 }
-export type UserRole = 'admin' | 'manager' | 'employee';
+export type UserRole = 'admin' | 'manager' | 'employee' | 'owner';
 export interface ShiftRole {
   id: string;
   title: string;
@@ -111,6 +116,8 @@ export interface Task {
   parentTaskId?: string;
   linkedFormId?: string;
   checklist?: TaskChecklistItem[];
+  aiAnalysis?: string;
+  isAiVerified?: boolean;
 }
 export type FormFieldType = 'text' | 'textarea' | 'select' | 'checkbox';
 export interface FormField {
@@ -120,16 +127,21 @@ export interface FormField {
   required: boolean;
   options?: string[];
 }
+export type RoutingMode = 'fixed' | 'active_role';
 export interface QRForm {
   id: string;
   title: string;
   description?: string;
   category?: string;
+  folder?: string;
   fields: FormField[];
   defaultAssignees?: string[];
   defaultAssignedRoles?: string[];
   locationId?: string;
   createdAt: number;
+  autoPriority?: TaskPriority;
+  routingMode?: RoutingMode;
+  targetRoleId?: string;
 }
 export interface FormSubmission {
   id: string;
@@ -150,4 +162,17 @@ export interface Shift {
   status: ShiftStatus;
   acknowledgedAt?: number;
   createdAt: number;
+}
+export type GeofenceSensitivity = 'low' | 'medium' | 'high';
+export interface ResortSettings {
+  id: string;
+  resortName: string;
+  workDayStart: string; // "HH:mm"
+  workDayEnd: string; // "HH:mm"
+  geofenceSensitivity: GeofenceSensitivity;
+  allowManualPunchBypass: boolean;
+  requireFaceIdGlobally: boolean;
+  autoArchiveCompletedTasksDays: number;
+  strictOvertimeBlocking: boolean;
+  timezone: string;
 }

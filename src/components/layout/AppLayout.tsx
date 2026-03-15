@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -7,7 +7,7 @@ import { useAuthStore } from "@/store/authStore";
 import { useLiveNotifications } from "@/hooks/useLiveNotifications";
 import { useGeofence } from "@/hooks/useGeofence";
 import { useDataStore } from "@/store/dataStore";
-import { Cloud, CheckCircle2, Loader2, CloudOff, Info } from "lucide-react";
+import { Cloud, CheckCircle2, Loader2, CloudOff, Info, ShieldCheck, WifiOff } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 type AppLayoutProps = {
   children: React.ReactNode;
@@ -22,20 +22,26 @@ export function AppLayout({ children, container = true, className = "", contentC
   const isSyncing = useDataStore(s => s.isSyncing);
   const lastSynced = useDataStore(s => s.lastSynced);
   const cloudSyncEnabled = useDataStore(s => s.cloudSyncEnabled);
-  // Validate session expiration on initial mount and set up aggressive 1-minute sync.
+  const [syncError, setSyncError] = useState(false);
+  // Validate session and start background sync
   useEffect(() => {
     useAuthStore.getState().checkSession();
     let intervalId: ReturnType<typeof setInterval>;
-    // Trigger local-first data sync in background
     const currentUser = useAuthStore.getState().user;
     if (currentUser) {
-      useDataStore.getState().syncData(currentUser.id, currentUser.role).then(() => {
-        useDataStore.getState().triggerDailyTasksSync();
-      });
-      // Aggressive live sync every 60 seconds for near real-time updates and frequent cloud backups
+      // Immediate boot: The UI already renders local data from localStorage because of Zustand persistence.
+      // We just trigger the cloud refresh in the background.
+      useDataStore.getState().syncData(currentUser.id, currentUser.role)
+        .then(() => {
+          setSyncError(false);
+          useDataStore.getState().triggerDailyTasksSync();
+        })
+        .catch(() => setSyncError(true));
       intervalId = setInterval(() => {
         if (useAuthStore.getState().checkSession()) {
-           useDataStore.getState().syncData(currentUser.id, currentUser.role, true);
+           useDataStore.getState().syncData(currentUser.id, currentUser.role, true)
+             .then(() => setSyncError(false))
+             .catch(() => setSyncError(true));
         }
       }, 60000);
     }
@@ -43,9 +49,8 @@ export function AppLayout({ children, container = true, className = "", contentC
       if (intervalId) clearInterval(intervalId);
     };
   }, []);
-  // Initialize live notifications hook for managers/admins
+  // Initialize hooks
   useLiveNotifications();
-  // Initialize global geofencing reminders for employees
   useGeofence();
   if (!userId) {
     return <Navigate to="/login" state={{ from: location }} replace />;
@@ -71,11 +76,23 @@ export function AppLayout({ children, container = true, className = "", contentC
                     <div className="flex gap-2">
                       <Info className="h-4 w-4 text-blue-500 shrink-0 mt-0.5" />
                       <p className="text-xs leading-relaxed">
-                        Cloud backup is disabled. Your data is currently stored only in this browser (Free Tier). 
+                        Cloud backup is disabled. Your data is currently stored only in this browser (Free Tier).
                         Multi-device sync is unavailable in this mode.
                       </p>
                     </div>
                   </TooltipContent>
+                </Tooltip>
+              ) : syncError ? (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="flex items-center gap-1.5 text-xs font-medium text-rose-600 bg-rose-500/10 px-2.5 py-1.5 rounded-full border border-rose-500/20 shadow-sm cursor-help">
+                        <WifiOff className="h-3.5 w-3.5" />
+                        <span className="hidden sm:inline">Offline (Protected)</span>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs">
+                        <p className="text-xs">Failed to connect to cloud. Your changes are being saved locally and will sync when connection returns.</p>
+                    </TooltipContent>
                 </Tooltip>
               ) : isSyncing ? (
                 <div className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2.5 py-1.5 rounded-full border border-amber-500/20 shadow-sm transition-all duration-300">
@@ -85,14 +102,14 @@ export function AppLayout({ children, container = true, className = "", contentC
               ) : lastSynced > 0 ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1.5 rounded-full border border-emerald-500/20 shadow-sm transition-all duration-300 cursor-help" title={`Last synced: ${new Date(lastSynced).toLocaleTimeString()}`}>
-                      <Cloud className="h-3.5 w-3.5" />
-                      <span className="hidden sm:inline">Cloud Synced</span>
+                    <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2.5 py-1.5 rounded-full border border-emerald-500/20 shadow-sm transition-all duration-300 cursor-help">
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Data Protected</span>
                       <CheckCircle2 className="h-3 w-3 hidden sm:inline" />
                     </div>
                   </TooltipTrigger>
                   <TooltipContent>
-                    <p className="text-xs">Secure cloud backup active. Last synced at {new Date(lastSynced).toLocaleTimeString()}.</p>
+                    <p className="text-xs">Secure local & cloud persistence active. Last synced at {new Date(lastSynced).toLocaleTimeString()}.</p>
                   </TooltipContent>
                 </Tooltip>
               ) : null}

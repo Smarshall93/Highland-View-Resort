@@ -10,19 +10,32 @@ export function useLiveNotifications() {
   const seenTimeEntries = useRef<Set<string>>(new Set());
   const seenCompletedTasks = useRef<Set<string>>(new Set());
   const isFirstRun = useRef(true);
+  const consecutiveFailures = useRef(0);
   useEffect(() => {
     if (!userId || !userRole) {
       return;
     }
     let isMounted = true;
+    let timeoutId: ReturnType<typeof setTimeout>;
     const poll = async () => {
       if (!isMounted) return;
+      // Resource saving: only poll if tab is active
+      if (document.visibilityState !== 'visible') {
+        timeoutId = setTimeout(poll, 30000);
+        return;
+      }
       try {
         const timestamp = Date.now();
+        const controller = new AbortController();
+        const signal = controller.signal;
+        // Add timeout to fetch
+        const fetchTimeout = setTimeout(() => controller.abort(), 10000);
         const [timeRes, taskRes] = await Promise.all([
-          api<{items: TimeEntry[]}>(`/api/time-entries?limit=10&_t=${timestamp}`),
-          api<{items: Task[]}>(`/api/tasks?limit=10&_t=${timestamp}`)
+          api<{items: TimeEntry[]}>(`/api/time-entries?limit=10&_t=${timestamp}`, { signal }),
+          api<{items: Task[]}>(`/api/tasks?limit=10&_t=${timestamp}`, { signal })
         ]);
+        clearTimeout(fetchTimeout);
+        consecutiveFailures.current = 0;
         const timeEntries = timeRes.items || [];
         const tasks = taskRes.items || [];
         if (isFirstRun.current) {
@@ -33,22 +46,20 @@ export function useLiveNotifications() {
             }
           });
           isFirstRun.current = false;
+          timeoutId = setTimeout(poll, 15000);
           return;
         }
         let hasNewData = false;
+        // Notifications logic
         timeEntries.forEach(entry => {
           if (!seenTimeEntries.current.has(entry.id)) {
             seenTimeEntries.current.add(entry.id);
             hasNewData = true;
-            const action = entry.type === 'clock_in' ? 'clocked in' :
-                           entry.type === 'clock_out' ? 'clocked out' :
-                           entry.type === 'break_start' ? 'started a break' : 'ended a break';
-            // Extract a short identifier for the user
-            const shortId = entry.userId.length > 8 ? entry.userId.substring(0, 4) : entry.userId;
             if (userRole === 'admin' || userRole === 'manager') {
-              toast.info(`Team Update`, {
-                description: `User ${shortId} just ${action}.`
-              });
+              const action = entry.type === 'clock_in' ? 'clocked in' :
+                             entry.type === 'clock_out' ? 'clocked out' :
+                             entry.type === 'break_start' ? 'started a break' : 'ended a break';
+              toast.info(`Team Update`, { description: `Activity detected: User ${entry.userId.substring(0, 4)} ${action}.` });
             }
           }
         });
@@ -57,25 +68,31 @@ export function useLiveNotifications() {
              seenCompletedTasks.current.add(task.id);
              hasNewData = true;
              if (userRole === 'admin' || userRole === 'manager') {
-               toast.success(`Task Completed`, {
-                 description: `"${task.title}" was just marked as complete.`
-               });
+               toast.success(`Duty Completed`, { description: `"${task.title}" was resolved.` });
              }
           }
         });
-        // Trigger global state update so dashboards and timesheets reflect new data instantly
         if (hasNewData) {
           useDataStore.getState().syncData(userId, userRole, true);
         }
+        timeoutId = setTimeout(poll, 15000);
       } catch (err: any) {
-        console.error('Live notifications polling error:', err?.message || String(err));
+        if (err.name === 'AbortError') {
+          console.error('[POLL] Request timed out');
+        } else if (err.message?.includes('500') || err.message?.includes('failed to load')) {
+          console.error('[POLL] Backend service failure: Worker routes failed to respond');
+        } else {
+          console.error('[POLL] Unexpected error:', err.message);
+        }
+        consecutiveFailures.current++;
+        const backoff = Math.min(60000, 15000 * consecutiveFailures.current);
+        timeoutId = setTimeout(poll, backoff);
       }
     };
-    poll(); // Initial check
-    const intervalId = setInterval(poll, 15000); // Poll every 15 seconds
+    poll();
     return () => {
       isMounted = false;
-      clearInterval(intervalId);
+      if (timeoutId) clearTimeout(timeoutId);
     };
   }, [userId, userRole]);
 }

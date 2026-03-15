@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Users, UserPlus, MoreVertical, Briefcase, Loader2, Mail, ShieldAlert, Edit, Trash2, Plus } from 'lucide-react';
+import { Users, UserPlus, MoreVertical, Briefcase, Loader2, Mail, ShieldAlert, Edit, Plus, Trash2, Shield, CheckCircle2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,6 @@ export function TeamDirectoryPage() {
   const users = useDataStore(s => s.users);
   const syncData = useDataStore(s => s.syncData);
   const [isLoading, setIsLoading] = useState(true);
-  // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
@@ -44,9 +43,9 @@ export function TeamDirectoryPage() {
   const [newPin, setNewPin] = useState('');
   const [newShiftRoles, setNewShiftRoles] = useState<ShiftRole[]>([]);
   const [isCreating, setIsCreating] = useState(false);
-  // Editing State
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const isManagerOrAdmin = currentUserRole === 'admin' || currentUserRole === 'manager';
+  const isOwner = currentUserRole === 'owner';
+  const canMutate = (currentUserRole === 'admin' || currentUserRole === 'manager') && !isOwner;
   useEffect(() => {
     const loadData = async () => {
       if (currentUserRole === 'employee') return;
@@ -61,6 +60,10 @@ export function TeamDirectoryPage() {
   }
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canMutate) {
+      toast.error("Read-Only Access", { description: "Owners cannot provision team members." });
+      return;
+    }
     if (!newName.trim() || !newEmail.trim() || !newPassword.trim()) return;
     setIsCreating(true);
     try {
@@ -75,259 +78,139 @@ export function TeamDirectoryPage() {
           shiftRoles: newShiftRoles
         })
       });
-      toast.success('Team member added successfully.');
+      toast.success('Member added to resort directory');
       setIsModalOpen(false);
-      setNewName('');
-      setNewEmail('');
-      setNewPassword('');
-      setNewRole('employee');
-      setNewPin('');
-      setNewShiftRoles([]);
+      resetForm();
       await syncData(currentUserId, currentUserRole, true);
     } catch (error: any) {
-      console.error(error);
-      toast.error(error.message || 'Failed to add team member');
+      toast.error('Failed to add member');
     } finally {
       setIsCreating(false);
     }
   };
+  const resetForm = () => {
+    setNewName(''); setNewEmail(''); setNewPassword('');
+    setNewRole('employee'); setNewPin(''); setNewShiftRoles([]);
+  };
   const getRoleBadge = (role?: UserRole) => {
     switch (role) {
-      case 'admin':
-        return <Badge className="bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 border-rose-200 dark:border-rose-800">Admin</Badge>;
-      case 'manager':
-        return <Badge className="bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 border-blue-200 dark:border-blue-800">Manager</Badge>;
-      default:
-        return <Badge variant="secondary" className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300">Employee</Badge>;
+      case 'admin': return <Badge className="bg-rose-500/10 text-rose-600 border-rose-200 uppercase font-black text-[10px]">Admin</Badge>;
+      case 'manager': return <Badge className="bg-blue-500/10 text-blue-600 border-blue-200 uppercase font-black text-[10px]">Manager</Badge>;
+      case 'owner': return <Badge className="bg-amber-500/10 text-amber-600 border-amber-200 uppercase font-black text-[10px]">Owner</Badge>;
+      default: return <Badge variant="secondary" className="uppercase font-black text-[10px]">Employee</Badge>;
     }
-  };
-  const getInitials = (name: string) => {
-    const initials = (name || '').trim().split(/\s+/).filter(Boolean).map(n => n[0]).join('').substring(0, 2).toUpperCase();
-    return initials || 'U';
   };
   return (
     <AppLayout>
-      <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10 space-y-10 animate-in fade-in duration-500">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <Users className="h-8 w-8 text-primary" />
+          <div className="space-y-1">
+            <h1 className="text-4xl font-black tracking-tighter flex items-center gap-2">
+              <Users className="h-10 w-10 text-primary" />
               Team Directory
             </h1>
-            <p className="text-muted-foreground mt-1">Manage your workforce, assign roles, and provision access.</p>
+            <p className="text-muted-foreground font-medium">Manage permissions and resort staff profiles.</p>
           </div>
-          {isManagerOrAdmin && (
-            <Button onClick={() => setIsModalOpen(true)} className="shadow-sm hover:shadow-md transition-all">
-              <UserPlus className="mr-2 h-4 w-4" /> Add Member
+          {canMutate && (
+            <Button size="lg" onClick={() => setIsModalOpen(true)} className="h-14 px-8 rounded-2xl shadow-xl hover:scale-105 transition-all">
+              <UserPlus className="mr-2 h-5 w-5" /> Add Team Member
             </Button>
           )}
         </div>
+        {isOwner && (
+          <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/30 p-4 rounded-2xl flex items-start gap-4">
+            <Shield className="h-6 w-6 text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1">
+               <p className="text-sm font-black text-amber-900 dark:text-amber-400 uppercase tracking-widest mb-1">Administrative Access Level: Monitor</p>
+               <p className="text-sm text-amber-700 dark:text-amber-500/90 leading-relaxed font-medium">
+                 You are viewing the resort directory in high-security monitor mode. Provisioning new members or modifying account credentials is restricted to Admin or Manager roles.
+               </p>
+            </div>
+          </div>
+        )}
         {isLoading && users.length === 0 ? (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {[1, 2, 3, 4, 5, 6].map(i => (
-              <Card key={i} className="overflow-hidden shadow-sm">
-                <CardContent className="p-6">
-                  <div className="flex flex-col items-center text-center space-y-4">
-                    <Skeleton className="h-20 w-20 rounded-full" />
-                    <div className="space-y-2 w-full flex flex-col items-center">
-                      <Skeleton className="h-5 w-2/3" />
-                      <Skeleton className="h-4 w-1/3" />
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            {[1, 2, 3, 4].map(i => <Skeleton key={i} className="h-48 rounded-3xl" />)}
           </div>
-        ) : users.length > 0 ? (
+        ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {users.map((user) => (
-              <Card key={user.id} className="group hover:shadow-md transition-all overflow-hidden flex flex-col relative">
-                <div className="h-24 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent" />
-                <CardContent className="px-6 pb-6 pt-0 flex-1 flex flex-col items-center text-center relative">
-                  <div className="h-20 w-20 rounded-full border-4 border-background bg-secondary flex items-center justify-center -mt-10 mb-3 overflow-hidden shadow-sm">
-                    {user.avatarUrl ? (
-                      <img src={user.avatarUrl} alt={user.name} className="h-full w-full object-cover" />
-                    ) : (
-                      <span className="text-2xl font-semibold text-muted-foreground">{getInitials(user.name)}</span>
-                    )}
+              <Card key={user.id} className="group hover:shadow-2xl transition-all border-none shadow-sm rounded-[2rem] overflow-hidden bg-card">
+                <CardContent className="p-8 flex flex-col items-center text-center relative">
+                  <div className="h-24 w-24 rounded-full bg-secondary flex items-center justify-center mb-4 border-4 border-background shadow-lg overflow-hidden group-hover:scale-105 transition-transform">
+                    {user.avatarUrl ? <img src={user.avatarUrl} className="h-full w-full object-cover"/> : <span className="font-black text-2xl text-muted-foreground">{user.name.substring(0, 2).toUpperCase()}</span>}
                   </div>
-                  {isManagerOrAdmin && (
-                    <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  {canMutate && (
+                    <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                       <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="hover:bg-muted/50">
-                            <MoreVertical className="h-4 w-4 text-muted-foreground" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                          <DropdownMenuItem onClick={() => setEditingUser(user)} className="cursor-pointer">
-                            <Edit className="mr-2 h-4 w-4" /> Edit Profile
-                          </DropdownMenuItem>
+                        <DropdownMenuTrigger asChild><Button variant="ghost" size="icon" className="h-10 w-10 bg-background/80 backdrop-blur rounded-full"><MoreVertical className="h-4 w-4" /></Button></DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="rounded-xl">
+                          <DropdownMenuItem onClick={() => setEditingUser(user)} className="font-bold gap-2"><Edit className="h-4 w-4" /> Edit Profile</DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
                   )}
-                  <h3 className="text-lg font-bold line-clamp-1 w-full">{user.name}</h3>
-                  <div className="mt-1 mb-4">{getRoleBadge(user.role)}</div>
-                  <div className="w-full space-y-3 mt-auto pt-4 border-t border-border/50">
-                    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground bg-muted/30 py-1.5 px-2 rounded-md truncate">
-                      <Mail className="h-3.5 w-3.5 shrink-0" />
-                      <span className="truncate">{user.email || 'No email set'}</span>
+                  <h3 className="font-black text-xl tracking-tight mb-1">{user.name}</h3>
+                  <div className="mb-6">{getRoleBadge(user.role)}</div>
+                  <div className="w-full space-y-3 pt-6 border-t border-border/50 text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                    <div className="flex items-center justify-center gap-2">
+                       <Mail className="h-3 w-3" />
+                       <span className="truncate max-w-[150px]">{user.email || 'No email'}</span>
                     </div>
-                    <div className="flex items-center text-xs text-muted-foreground justify-center gap-2">
-                      <Briefcase className="h-3.5 w-3.5" />
-                      <span>ID: {user.id.split('-')[0]}</span>
+                    <div className="flex items-center justify-center gap-2">
+                       <Briefcase className="h-3 w-3" />
+                       <span>ID: {user.id.split('-')[0]}</span>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
-        ) : (
-          <div className="text-center py-16 px-4 border-2 border-dashed rounded-xl bg-muted/10">
-            <Users className="mx-auto h-12 w-12 text-muted-foreground/30 mb-4" />
-            <h3 className="text-lg font-medium">No team members</h3>
-            <p className="text-sm text-muted-foreground mt-1 mb-6">
-              Start building your team by adding your first employee.
-            </p>
-            {isManagerOrAdmin && (
-              <Button onClick={() => setIsModalOpen(true)}>
-                <UserPlus className="mr-2 h-4 w-4" /> Add Team Member
-              </Button>
-            )}
-          </div>
         )}
         <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-          <DialogContent className="sm:max-w-[425px]">
+          <DialogContent className="sm:max-w-[450px] p-0 overflow-hidden rounded-[2rem]">
             <form onSubmit={handleCreateUser}>
-              <DialogHeader>
-                <DialogTitle>Add Team Member</DialogTitle>
-                <DialogDescription>
-                  Create a new employee profile and provision access credentials.
-                </DialogDescription>
+              <DialogHeader className="p-8 border-b bg-muted/30">
+                <DialogTitle className="text-2xl font-black">Provision Member</DialogTitle>
+                <DialogDescription className="font-medium">Assign a new member to the resort workforce.</DialogDescription>
               </DialogHeader>
-              <div className="grid gap-4 py-4 max-h-[60vh] overflow-y-auto px-1">
+              <div className="p-8 space-y-6">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Full Name <span className="text-rose-500">*</span></Label>
-                  <Input
-                    id="name"
-                    placeholder="e.g. Jane Smith"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    required
-                    autoFocus
-                  />
+                  <Label className="font-black text-xs uppercase tracking-widest">Full Name</Label>
+                  <Input value={newName} onChange={e => setNewName(e.target.value)} required className="h-12 rounded-xl" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="email">Email Address <span className="text-rose-500">*</span></Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    placeholder="jane.smith@company.com"
-                    value={newEmail}
-                    onChange={(e) => setNewEmail(e.target.value)}
-                    required
-                  />
+                  <Label className="font-black text-xs uppercase tracking-widest">Email</Label>
+                  <Input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required className="h-12 rounded-xl" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="password">Initial Password <span className="text-rose-500">*</span></Label>
-                  <Input
-                    id="password"
-                    type="text"
-                    placeholder="e.g. securePass123"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    required
-                  />
-                  <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-1">
-                    <ShieldAlert className="h-3 w-3" /> User will use this to sign into the mobile app.
-                  </p>
+                  <Label className="font-black text-xs uppercase tracking-widest">Initial Password</Label>
+                  <Input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} required className="h-12 rounded-xl" />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="role">System Role <span className="text-rose-500">*</span></Label>
+                  <Label className="font-black text-xs uppercase tracking-widest">Resort Role</Label>
                   <Select value={newRole} onValueChange={(v: UserRole) => setNewRole(v)}>
-                    <SelectTrigger id="role">
-                      <SelectValue placeholder="Select a role" />
-                    </SelectTrigger>
-                    <SelectContent>
+                    <SelectTrigger className="h-12 rounded-xl"><SelectValue /></SelectTrigger>
+                    <SelectContent className="rounded-xl">
                       <SelectItem value="employee">Employee</SelectItem>
                       <SelectItem value="manager">Manager</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
+                      <SelectItem value="owner">Owner</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-2 border-t pt-4 mt-2">
-                  <Label htmlFor="pinCode">4-Digit PIN Code (Optional)</Label>
-                  <Input
-                    id="pinCode"
-                    type="text"
-                    maxLength={4}
-                    pattern="[0-9]*"
-                    placeholder="e.g. 1234"
-                    value={newPin}
-                    onChange={(e) => setNewPin(e.target.value.replace(/[^0-9]/g, ''))}
-                  />
-                  <p className="text-xs text-muted-foreground mt-1.5">
-                    Used for shared tablet clock-ins via Kiosk Mode.
-                  </p>
-                </div>
-                <div className="space-y-3 border-t pt-4 mt-2">
-                  <div className="flex items-center justify-between">
-                    <Label>Shift Roles & Pay Rates</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={() => setNewShiftRoles([...newShiftRoles, { id: crypto.randomUUID(), title: '' }])}>
-                      <Plus className="mr-1 h-3 w-3" /> Add Role
-                    </Button>
-                  </div>
-                  {newShiftRoles.map((role, idx) => (
-                    <div key={role.id} className="flex items-center gap-2">
-                      <Input
-                        placeholder="Role Title"
-                        value={role.title}
-                        onChange={e => {
-                          const newRoles = [...newShiftRoles];
-                          newRoles[idx].title = e.target.value;
-                          setNewShiftRoles(newRoles);
-                        }}
-                        className="flex-1"
-                      />
-                      <div className="relative w-24">
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
-                        <Input
-                          type="number"
-                          placeholder="Rate"
-                          className="pl-6"
-                          value={role.payRate || ''}
-                          onChange={e => {
-                            const newRoles = [...newShiftRoles];
-                            newRoles[idx].payRate = parseFloat(e.target.value) || undefined;
-                            setNewShiftRoles(newRoles);
-                          }}
-                        />
-                      </div>
-                      <Button type="button" variant="ghost" size="icon" onClick={() => setNewShiftRoles(newShiftRoles.filter((_, i) => i !== idx))} className="text-muted-foreground hover:text-destructive shrink-0">
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  ))}
-                </div>
               </div>
-              <DialogFooter className="mt-4 border-t pt-4">
-                <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isCreating || !newName.trim() || !newEmail.trim() || !newPassword.trim()}>
-                  {isCreating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Create Profile
+              <DialogFooter className="p-8 bg-muted/20 border-t">
+                <Button type="button" variant="outline" onClick={() => setIsModalOpen(false)} className="rounded-xl h-12">Cancel</Button>
+                <Button type="submit" disabled={isCreating} className="rounded-xl h-12 px-8 font-black shadow-lg">
+                  {isCreating ? <Loader2 className="animate-spin mr-2 h-4 w-4" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  Deploy Member
                 </Button>
               </DialogFooter>
             </form>
           </DialogContent>
         </Dialog>
-        <EditProfileModal
-          isOpen={!!editingUser}
-          onClose={() => setEditingUser(null)}
-          userToEdit={editingUser}
-        />
+        <EditProfileModal isOpen={!!editingUser} onClose={() => setEditingUser(null)} userToEdit={editingUser} />
       </div>
     </AppLayout>
   );

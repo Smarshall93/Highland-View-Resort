@@ -1,5 +1,5 @@
 import { IndexedEntity } from "./core-utils";
-import type { User, Chat, ChatMessage, TimeEntry, Task, QRForm, FormSubmission, AuthToken, WorkLocation, WorkSite, Shift } from "../shared/types";
+import type { User, Chat, ChatMessage, TimeEntry, Task, QRForm, FormSubmission, AuthToken, WorkLocation, WorkSite, Shift, ResortSettings } from "../shared/types";
 import { MOCK_CHAT_MESSAGES, MOCK_CHATS, MOCK_USERS } from "../shared/mock-data";
 export class UserEntity extends IndexedEntity<User> {
   static readonly entityName = "user";
@@ -63,7 +63,7 @@ export class QRFormEntity extends IndexedEntity<QRForm> {
   static readonly indexName = "qrForms";
   static readonly initialState: QRForm = { id: "", title: "", fields: [], defaultAssignees: [], defaultAssignedRoles: [], createdAt: 0 };
   static seedData: QRForm[] = [
-    { id: "f1", title: "Customer Support Request", description: "Scan this code to request assistance from our team.", fields: [{ id: "field1", type: "text", label: "Your Name", required: true }, { id: "field2", type: "select", label: "Issue Type", required: true, options: ["General", "Technical", "Billing"] }, { id: "field3", type: "textarea", label: "Description", required: true }], createdAt: Date.now() - 100000 }
+    { id: "f1", title: "Customer Support Request", description: "Scan this code to request assistance from our team.", fields: [{ id: "field1", type: 'text', label: "Your Name", required: true }, { id: "field2", type: 'select', label: "Issue Type", required: true, options: ["General", "Technical", "Billing"] }, { id: "field3", type: 'textarea', label: "Description", required: true }], createdAt: Date.now() - 100000 }
   ];
 }
 export class FormSubmissionEntity extends IndexedEntity<FormSubmission> {
@@ -75,6 +75,22 @@ export class ShiftEntity extends IndexedEntity<Shift> {
   static readonly entityName = "shift";
   static readonly indexName = "shifts";
   static readonly initialState: Shift = { id: "", userId: "", startTime: 0, endTime: 0, status: "draft", createdAt: 0 };
+}
+export class ResortSettingsEntity extends IndexedEntity<ResortSettings> {
+  static readonly entityName = "resortSetting";
+  static readonly indexName = "resortSettings";
+  static readonly initialState: ResortSettings = {
+    id: "global",
+    resortName: "Highland View Resort",
+    workDayStart: "06:00",
+    workDayEnd: "23:00",
+    geofenceSensitivity: "medium",
+    allowManualPunchBypass: true,
+    requireFaceIdGlobally: true,
+    autoArchiveCompletedTasksDays: 30,
+    strictOvertimeBlocking: false,
+    timezone: "EST"
+  };
 }
 export type ChatBoardState = Chat & { messages: ChatMessage[] };
 const SEED_CHAT_BOARDS: ChatBoardState[] = MOCK_CHATS.map(c => ({
@@ -96,3 +112,16 @@ export class ChatBoardEntity extends IndexedEntity<ChatBoardState> {
     return msg;
   }
 }
+export const exportTypes: (new (...args: any[]) => IndexedEntity<any>)[] = [
+  UserEntity,
+  AuthTokenEntity,
+  WorkLocationEntity,
+  WorkSiteEntity,
+  TimeEntryEntity,
+  TaskEntity,
+  QRFormEntity,
+  FormSubmissionEntity,
+  ShiftEntity,
+  ChatBoardEntity,
+  ResortSettingsEntity
+];

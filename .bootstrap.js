@@ -84,7 +84,8 @@ function runSetupCommands() {
     "bun add @heroicons/react@^2.1.0",
     "bun add canvas-confetti@^1.9.0",
     "bun install qrcode.react",
-    "bun add lucide-react date-fns"
+    "bun add lucide-react date-fns zustand",
+    "bun add qrcode.react@^4.2.0 lucide-react@^0.475.0 date-fns@^4.1.0 canvas-confetti@^1.9.0"
 ];
     
     if (commands.length === 0) {

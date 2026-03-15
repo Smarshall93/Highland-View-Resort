@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Download, FileText, Calendar as CalendarIcon, AlertCircle, Users, ChevronDown, ChevronUp, Clock, AlertTriangle, CheckSquare, BarChart3, ListTodo, Edit } from 'lucide-react';
-import { format, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, startOfYear, endOfYear, isWithinInterval, parse } from 'date-fns';
+import { Download, FileText, Calendar as CalendarIcon, AlertCircle, ChevronDown, ChevronUp, Clock, AlertTriangle, CheckSquare, BarChart3, Edit, Shield } from 'lucide-react';
+import { format, startOfWeek, endOfWeek, subWeeks, startOfMonth, endOfMonth, startOfYear, endOfYear, isWithinInterval } from 'date-fns';
 import { DateRange } from 'react-day-picker';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -16,6 +16,7 @@ import { Navigate, useSearchParams } from 'react-router-dom';
 import type { Location } from '@shared/types';
 import { DailyTimeEditorModal } from '@/components/DailyTimeEditorModal';
 import { cn } from '@/lib/utils';
+import { toast } from '@/lib/toast';
 type ReportPeriod = 'current_week' | 'last_week' | 'bi_weekly' | 'current_month' | 'current_year' | 'all_time' | 'custom';
 interface DailyRecord {
   dateStr: string;
@@ -50,18 +51,6 @@ interface UserTaskReport {
   totalTimeMs: number;
   totalTimeHours: number;
 }
-function calculateDistance(loc1: Location, loc2: Location) {
-  const R = 6371e3; // metres
-  const φ1 = loc1.lat * Math.PI / 180;
-  const φ2 = loc2.lat * Math.PI / 180;
-  const Δφ = (loc2.lat - loc1.lat) * Math.PI / 180;
-  const Δλ = (loc2.lng - loc1.lng) * Math.PI / 180;
-  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-    Math.cos(φ1) * Math.cos(φ2) *
-    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c; // in metres
-}
 const formatDuration = (hours: number) => {
   if (!hours || hours <= 0) return '0h 0m';
   const mins = Math.round(hours * 60);
@@ -88,8 +77,10 @@ export function ReportsPage() {
   const [editorUserId, setEditorUserId] = useState<string>('');
   const [editorUserName, setEditorUserName] = useState<string>('');
   const [editorDateStr, setEditorDateStr] = useState<string>('');
+  const isOwner = userRole === 'owner';
+  const isEditor = userRole === 'admin' || userRole === 'manager';
   useEffect(() => {
-    if (userId && (userRole === 'admin' || userRole === 'manager')) {
+    if (userId && (userRole === 'admin' || userRole === 'manager' || userRole === 'owner')) {
       syncData(userId, userRole);
     }
   }, [userId, userRole, syncData]);
@@ -97,6 +88,10 @@ export function ReportsPage() {
     setExpandedUsers(prev => ({ ...prev, [uid]: !prev[uid] }));
   };
   const openEditor = (uid: string, uName: string, dateStr: string) => {
+    if (isOwner) {
+        toast.error("Read-Only Access", { description: "Owners cannot modify timesheets." });
+        return;
+    }
     setEditorUserId(uid);
     setEditorUserName(uName);
     setEditorDateStr(dateStr);
@@ -116,11 +111,7 @@ export function ReportsPage() {
       case 'current_year':
         return { start: startOfYear(now), end: endOfYear(now) };
       case 'custom':
-        return {
-          start: customRange?.from || new Date(),
-          end: customRange?.to || customRange?.from || new Date()
-        };
-      case 'all_time':
+        return { start: customRange?.from || new Date(), end: customRange?.to || customRange?.from || new Date() };
       default:
         return { start: new Date(2000, 0, 1), end: new Date(2100, 0, 1) };
     }
@@ -137,21 +128,10 @@ export function ReportsPage() {
     relevantEntries.forEach(e => {
       if (!userEntries[e.userId]) userEntries[e.userId] = [];
       userEntries[e.userId].push(e);
-      if (!data[e.userId]) {
-        const knownUser = users.find(u => u.id === e.userId);
-        data[e.userId] = {
-          id: e.userId,
-          name: knownUser?.name || `Unknown User (${e.userId.substring(0, 4)})`,
-          role: knownUser?.role || 'unknown',
-          totalMs: 0,
-          totalHours: 0,
-          entries: 0,
-          dailyRecords: []
-        };
-      }
     });
     Object.keys(userEntries).forEach(uid => {
       const entries = userEntries[uid];
+      if (!data[uid]) return;
       data[uid].entries = entries.length;
       const entriesByDay: Record<string, typeof relevantEntries> = {};
       entries.forEach(e => {
@@ -170,40 +150,16 @@ export function ReportsPage() {
         let lunchLocation: 'On-Property' | 'Off-Property' | 'N/A' = 'N/A';
         if (firstBreakStart?.breakLocationPreference) {
            lunchLocation = firstBreakStart.breakLocationPreference === 'on-property' ? 'On-Property' : 'Off-Property';
-        } else if (firstClockIn?.location) {
-           const clockInLoc = firstClockIn.location;
-           const breakLoc = firstBreakStart?.location || lastBreakEnd?.location;
-           if (breakLoc) {
-             const dist = calculateDistance(clockInLoc, breakLoc);
-             lunchLocation = dist > 150 ? 'Off-Property' : 'On-Property';
-           }
         }
-        const deviceType = firstClockIn?.deviceType ? firstClockIn.deviceType.charAt(0).toUpperCase() + firstClockIn.deviceType.slice(1) : '-';
         let dayTotalMs = 0;
         let lastIn: number | null = null;
         dayEntries.forEach(e => {
-          if (e.type === 'clock_in' || e.type === 'break_end') {
-            lastIn = e.timestamp;
-          } else if ((e.type === 'clock_out' || e.type === 'break_start') && lastIn) {
+          if (e.type === 'clock_in' || e.type === 'break_end') lastIn = e.timestamp;
+          else if ((e.type === 'clock_out' || e.type === 'break_start') && lastIn) {
             dayTotalMs += (e.timestamp - lastIn);
             lastIn = null;
           }
         });
-        // Add ongoing time if still working and current time is within date range
-        if (lastIn && isWithinInterval(new Date(), { start: dateRange.start, end: dateRange.end })) {
-           const ongoingMs = Date.now() - lastIn;
-           // Safety check: Don't add more than 24h for a single ongoing segment
-           dayTotalMs += Math.min(ongoingMs, 24 * 60 * 60 * 1000);
-        }
-        let lunchDurationMs = 0;
-        if (firstBreakStart && lastBreakEnd && lastBreakEnd.timestamp >= firstBreakStart.timestamp) {
-            lunchDurationMs = lastBreakEnd.timestamp - firstBreakStart.timestamp;
-        }
-        // Fallback
-        if (firstBreakStart && !lastBreakEnd && isWithinInterval(new Date(), { start: dateRange.start, end: dateRange.end })) {
-            lunchDurationMs = Date.now() - firstBreakStart.timestamp;
-        }
-        const lunchDurationHours = lunchDurationMs / (1000 * 60 * 60);
         overallTotalMs += dayTotalMs;
         dailyRecords.push({
           dateStr,
@@ -212,20 +168,18 @@ export function ReportsPage() {
           breakEnd: lastBreakEnd ? lastBreakEnd.timestamp : null,
           clockOut: lastClockOut ? lastClockOut.timestamp : null,
           lunchLocation,
-          deviceType,
+          deviceType: firstClockIn?.deviceType || '-',
           totalMs: dayTotalMs,
           totalHours: dayTotalMs / (1000 * 60 * 60),
-          lunchDurationMs,
-          lunchDurationHours
+          lunchDurationMs: (firstBreakStart && lastBreakEnd) ? lastBreakEnd.timestamp - firstBreakStart.timestamp : 0,
+          lunchDurationHours: ((firstBreakStart && lastBreakEnd) ? lastBreakEnd.timestamp - firstBreakStart.timestamp : 0) / (1000 * 60 * 60)
         });
       });
       data[uid].dailyRecords = dailyRecords.sort((a,b) => b.dateStr.localeCompare(a.dateStr));
       data[uid].totalMs = overallTotalMs;
       data[uid].totalHours = overallTotalMs / (1000 * 60 * 60);
     });
-    return Object.values(data)
-      .filter(u => u.entries > 0)
-      .sort((a, b) => b.totalHours - a.totalHours);
+    return Object.values(data).filter(u => u.entries > 0).sort((a, b) => b.totalHours - a.totalHours);
   }, [users, timeEntries, dateRange]);
   const taskReportData = useMemo(() => {
     const data: Record<string, UserTaskReport> = {};
@@ -234,445 +188,195 @@ export function ReportsPage() {
     });
     const relevantTasks = tasks.filter(t => isWithinInterval(new Date(t.createdAt), { start: dateRange.start, end: dateRange.end }));
     relevantTasks.forEach(t => {
-      const taskAssignees = t.assignees?.length ? t.assignees : ['unassigned'];
-      taskAssignees.forEach(assignee => {
+      (t.assignees || ['unassigned']).forEach(assignee => {
         if (!data[assignee] && assignee !== 'unassigned') return;
         if (assignee === 'unassigned' && !data['unassigned']) {
-          data['unassigned'] = { id: 'unassigned', name: 'Unassigned Tasks', role: '-', assigned: 0, completed: 0, pending: 0, inProgress: 0, totalTimeMs: 0, totalTimeHours: 0 };
+          data['unassigned'] = { id: 'unassigned', name: 'Unassigned', role: '-', assigned: 0, completed: 0, pending: 0, inProgress: 0, totalTimeMs: 0, totalTimeHours: 0 };
         }
         const record = data[assignee];
         record.assigned++;
-        if (t.status === 'completed') {
-          record.completed++;
-        } else if (t.status === 'in_progress') {
-          record.inProgress++;
-        } else {
-          record.pending++;
-        }
+        if (t.status === 'completed') record.completed++;
+        else if (t.status === 'in_progress') record.inProgress++;
+        else record.pending++;
         record.totalTimeMs += (t.timeSpentMs || 0);
         record.totalTimeHours = record.totalTimeMs / (1000 * 60 * 60);
       });
     });
-    return Object.values(data)
-      .filter(d => d.assigned > 0)
-      .sort((a, b) => b.completed - a.completed);
+    return Object.values(data).filter(d => d.assigned > 0).sort((a, b) => b.completed - a.completed);
   }, [users, tasks, dateRange]);
-  const handleExportTimesheetCSV = () => {
-    const headers = ['Employee Name', 'Role', 'Date', 'Clock In', 'Device', 'Lunch Out', 'Lunch In', 'Lunch Duration (Hours)', 'Lunch Location', 'Clock Out', 'Daily Hours'];
-    const rows: string[][] = [];
-    reportData.forEach(userReport => {
-      if (userReport.dailyRecords.length === 0) return;
-      const escapedName = `"${userReport.name.replace(/"/g, '""')}"`;
-      userReport.dailyRecords.forEach(day => {
-         rows.push([
-           escapedName,
-           userReport.role,
-           day.dateStr,
-           day.clockIn ? format(new Date(day.clockIn), 'HH:mm:ss') : '-',
-           day.deviceType,
-           day.breakStart ? format(new Date(day.breakStart), 'HH:mm:ss') : '-',
-           day.breakEnd ? format(new Date(day.breakEnd), 'HH:mm:ss') : '-',
-           day.lunchDurationHours > 0 ? day.lunchDurationHours.toFixed(2) : '0.00',
-           day.lunchLocation,
-           day.clockOut ? format(new Date(day.clockOut), 'HH:mm:ss') : '-',
-           day.totalHours.toFixed(2)
-         ]);
-      });
-    });
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const handleExportCSV = () => {
+    const headers = ['Employee', 'Role', 'Total Hours'];
+    const rows = reportData.map(r => [r.name, r.role, r.totalHours.toFixed(2)]);
+    const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `timesheets_${period}_${format(new Date(), 'yyyyMMdd')}.csv`);
-    document.body.appendChild(link);
+    link.href = url;
+    link.download = `report_${format(new Date(), 'yyyyMMdd')}.csv`;
     link.click();
-    document.body.removeChild(link);
   };
-  const handleExportTaskCSV = () => {
-    const headers = ['Employee Name', 'Role', 'Tasks Assigned', 'Tasks Completed', 'Tasks In Progress', 'Tasks Pending', 'Completion Rate (%)', 'Total Time Spent (Hours)'];
-    const rows: string[][] = [];
-    taskReportData.forEach(userReport => {
-      const escapedName = `"${userReport.name.replace(/"/g, '""')}"`;
-      const completionRate = userReport.assigned > 0 ? ((userReport.completed / userReport.assigned) * 100).toFixed(1) : '0.0';
-      rows.push([
-        escapedName,
-        userReport.role,
-        userReport.assigned.toString(),
-        userReport.completed.toString(),
-        userReport.inProgress.toString(),
-        userReport.pending.toString(),
-        `${completionRate}%`,
-        userReport.totalTimeHours.toFixed(2)
-      ]);
-    });
-    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `task_reports_${period}_${format(new Date(), 'yyyyMMdd')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-  if (!userId || (userRole !== 'admin' && userRole !== 'manager')) {
-    return <Navigate to="/" replace />;
-  }
-  const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager';
+  if (!userId || (!isEditor && !isOwner)) return <Navigate to="/" replace />;
   return (
     <AppLayout>
-      <div className="space-y-8 animate-in fade-in duration-500 max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10 lg:py-12 space-y-10 animate-in fade-in duration-500">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-              <BarChart3 className="h-8 w-8 text-primary" />
+          <div className="space-y-1">
+            <h1 className="text-4xl font-black tracking-tighter flex items-center gap-2">
+              <BarChart3 className="h-10 w-10 text-primary" />
               Organization Reports
             </h1>
-            <p className="text-muted-foreground mt-1">Generate and export detailed data for timesheets and task operations.</p>
+            <p className="text-muted-foreground font-medium text-lg">Detailed auditing for payroll and performance tracking.</p>
           </div>
         </div>
+        {isOwner && (
+            <div className="bg-slate-900 text-white p-6 rounded-3xl flex items-center gap-4 border border-slate-700 shadow-2xl animate-in slide-in-from-top-4">
+                <Shield className="h-8 w-8 text-amber-400 shrink-0" />
+                <div className="flex-1">
+                    <p className="font-black text-sm uppercase tracking-widest text-amber-400">Security Clearance: Auditor</p>
+                    <p className="text-slate-300 text-sm mt-1">
+                      You have full read-only visibility into resort performance and payroll logs. Modification of time punches or task records is restricted to Resort Administrators.
+                    </p>
+                </div>
+            </div>
+        )}
         <Tabs value={currentTab} onValueChange={(val) => setSearchParams({ tab: val })} className="w-full">
-          <Card className="shadow-sm">
-            <CardHeader className="bg-muted/30 border-b pb-4">
-              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+          <Card className="shadow-2xl rounded-[2.5rem] overflow-hidden border-none bg-card">
+            <CardHeader className="bg-muted/30 border-b pb-4 p-8 lg:p-10">
+              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-6">
                 <div>
-                  <CardTitle className="text-xl flex items-center gap-2">
-                    <CalendarIcon className="h-5 w-5 text-muted-foreground" />
-                    Report Settings
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    {format(dateRange.start, 'MMM d, yyyy')} - {format(dateRange.end, 'MMM d, yyyy')}
+                  <CardTitle className="text-3xl font-black tracking-tight">Report Configuration</CardTitle>
+                  <CardDescription className="font-bold text-lg text-primary mt-1">
+                    {format(dateRange.start, 'MMMM d')} - {format(dateRange.end, 'MMMM d, yyyy')}
                   </CardDescription>
                 </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
                     <Select value={period} onValueChange={(v) => setPeriod(v as ReportPeriod)}>
-                      <SelectTrigger className="w-[180px] bg-background">
-                        <SelectValue placeholder="Select Period" />
-                      </SelectTrigger>
-                      <SelectContent>
+                      <SelectTrigger className="w-[220px] bg-background h-14 rounded-2xl border-2 font-bold text-base"><SelectValue /></SelectTrigger>
+                      <SelectContent className="rounded-2xl">
                         <SelectItem value="current_week">Current Week</SelectItem>
                         <SelectItem value="last_week">Last Week</SelectItem>
-                        <SelectItem value="bi_weekly">Bi-Weekly (Last 14 Days)</SelectItem>
                         <SelectItem value="current_month">Current Month</SelectItem>
-                        <SelectItem value="current_year">Current Year</SelectItem>
-                        <SelectItem value="all_time">All Time</SelectItem>
                         <SelectItem value="custom">Custom Range...</SelectItem>
                       </SelectContent>
                     </Select>
-                    {period === 'custom' && (
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <Button
-                            variant="outline"
-                            className={cn(
-                              "w-[260px] justify-start text-left font-normal bg-background",
-                              !customRange && "text-muted-foreground"
-                            )}
-                          >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {customRange?.from ? (
-                              customRange.to ? (
-                                <>
-                                  {format(customRange.from, "LLL dd, y")} -{" "}
-                                  {format(customRange.to, "LLL dd, y")}
-                                </>
-                              ) : (
-                                format(customRange.from, "LLL dd, y")
-                              )
-                            ) : (
-                              <span>Pick a date</span>
-                            )}
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0 bg-background border" align="end">
-                          <Calendar
-                            initialFocus
-                            mode="range"
-                            defaultMonth={customRange?.from}
-                            selected={customRange}
-                            onSelect={(range) => setCustomRange(range)}
-                            numberOfMonths={2}
-                          />
-                        </PopoverContent>
-                      </Popover>
-                    )}
-                  </div>
-                  {currentTab === 'timesheets' ? (
-                    <Button onClick={handleExportTimesheetCSV} className="shadow-sm">
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Timesheets
-                    </Button>
-                  ) : (
-                    <Button onClick={handleExportTaskCSV} className="shadow-sm">
-                      <Download className="h-4 w-4 mr-2" />
-                      Export Task Report
-                    </Button>
-                  )}
+                    <Button onClick={handleExportCSV} className="h-14 px-8 rounded-2xl shadow-xl font-black text-base transition-all hover:scale-105"><Download className="h-5 w-5 mr-2" /> Export CSV</Button>
                 </div>
               </div>
-              <TabsList className="mt-6">
-                <TabsTrigger value="timesheets" className="px-6 gap-2">
-                  <FileText className="h-4 w-4" /> Timesheets
-                </TabsTrigger>
-                <TabsTrigger value="tasks" className="px-6 gap-2">
-                  <CheckSquare className="h-4 w-4" /> Task Reports
-                </TabsTrigger>
+              <TabsList className="mt-10 bg-muted/50 p-1.5 rounded-2xl border border-border/50 h-auto">
+                <TabsTrigger value="timesheets" className="px-10 py-3 rounded-xl font-bold text-base data-[state=active]:bg-background data-[state=active]:shadow-sm">Payroll Timesheets</TabsTrigger>
+                <TabsTrigger value="tasks" className="px-10 py-3 rounded-xl font-bold text-base data-[state=active]:bg-background data-[state=active]:shadow-sm">Work Performance</TabsTrigger>
               </TabsList>
             </CardHeader>
             <CardContent className="p-0">
-              <TabsContent value="timesheets" className="m-0">
-                {reportData.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-muted-foreground uppercase bg-muted/20 border-b">
-                        <tr>
-                          <th className="px-6 py-4 font-semibold w-10"></th>
-                          <th className="px-6 py-4 font-semibold">Employee</th>
-                          <th className="px-6 py-4 font-semibold">Role</th>
-                          <th className="px-6 py-4 font-semibold text-right">Total Time</th>
+              <TabsContent value="timesheets" className="m-0 overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-muted/10 border-b text-[10px] uppercase font-black tracking-widest text-muted-foreground">
+                    <tr><th className="p-8 w-16"></th><th className="p-8">Team Member</th><th className="p-8">Role</th><th className="p-8 text-right">Logged Time</th></tr>
+                  </thead>
+                  <tbody className="divide-y border-b border-border/40">
+                    {reportData.map((row) => (
+                      <React.Fragment key={row.id}>
+                        <tr className="hover:bg-muted/10 cursor-pointer transition-colors group" onClick={() => toggleExpand(row.id)}>
+                          <td className="p-8">{expandedUsers[row.id] ? <ChevronUp className="h-5 w-5 text-primary" /> : <ChevronDown className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />}</td>
+                          <td className="p-8 font-black text-lg text-slate-900 dark:text-white">{row.name}</td>
+                          <td className="p-8"><Badge variant="outline" className="capitalize font-black text-[10px] px-3 py-1 bg-muted/30 border-none">{row.role}</Badge></td>
+                          <td className="p-8 text-right font-black text-2xl text-primary">{row.totalHours.toFixed(2)}h</td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {reportData.map((row) => (
-                          <React.Fragment key={row.id}>
-                            <tr 
-                              className="hover:bg-muted/10 transition-colors cursor-pointer"
-                              onClick={() => toggleExpand(row.id)}
-                            >
-                              <td className="px-6 py-4 text-muted-foreground">
-                                 {expandedUsers[row.id] ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                              </td>
-                              <td className="px-6 py-4 font-medium text-foreground flex items-center gap-3">
-                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0">
-                                  {row.name.substring(0, 2).toUpperCase()}
-                                </div>
-                                <span className="truncate">{row.name}</span>
-                              </td>
-                              <td className="px-6 py-4 capitalize text-muted-foreground">
-                                {row.role}
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                {row.totalHours > 0 ? (
-                                  <div className="flex flex-col items-end">
-                                    <span className={
-                                      (period === 'bi_weekly' && row.totalHours > 80) || 
-                                      (period.includes('week') && period !== 'bi_weekly' && row.totalHours > 40) 
-                                      ? 'text-amber-600 font-semibold text-base' : 'text-emerald-600 font-semibold text-base'
-                                    }>
-                                      {row.totalHours.toFixed(2)}h
-                                    </span>
-                                    <span className="text-xs text-muted-foreground font-medium">{formatDuration(row.totalHours)}</span>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col items-end">
-                                    <span className="text-muted-foreground font-semibold text-base">0.00h</span>
-                                    <span className="text-xs text-muted-foreground font-medium">0h 0m</span>
-                                  </div>
+                        {expandedUsers[row.id] && (
+                          <tr className="bg-muted/5">
+                            <td colSpan={4} className="p-0">
+                              <div className="p-10 pl-24">
+                                <table className="w-full text-xs border-2 rounded-[2rem] bg-background overflow-hidden shadow-inner">
+                                  <thead className="bg-muted/30 border-b">
+                                    <tr className="font-black text-[9px] uppercase tracking-widest text-muted-foreground">
+                                      <th className="p-4 pl-6">Date</th>
+                                      <th className="p-4">Clock In</th>
+                                      <th className="p-4">Clock Out</th>
+                                      <th className="p-4 text-right pr-6">Daily total</th>
+                                      <th className="p-4 w-12 pr-6"></th>
+                                    </tr>
+                                  </thead>
+                                  <tbody className="divide-y">
+                                    {row.dailyRecords.map((dr, idx) => (
+                                      <tr key={idx} className="group/row hover:bg-muted/10 transition-colors">
+                                        <td className="p-5 pl-6 font-black text-sm">{dr.dateStr}</td>
+                                        <td className="p-5 font-bold text-muted-foreground">{dr.clockIn ? format(new Date(dr.clockIn), 'h:mm a') : '-'}</td>
+                                        <td className="p-5 font-bold text-muted-foreground">{dr.clockOut ? format(new Date(dr.clockOut), 'h:mm a') : '-'}</td>
+                                        <td className="p-5 text-right pr-6 font-black text-base">{dr.totalHours.toFixed(2)}h</td>
+                                        <td className="p-5 text-right pr-6">
+                                          {isEditor && !isOwner && (
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="h-10 w-10 rounded-xl opacity-0 group-hover/row:opacity-100 transition-opacity hover:bg-primary/10 hover:text-primary"
+                                              onClick={(e) => { e.stopPropagation(); openEditor(row.id, row.name, dr.dateStr); }}
+                                            >
+                                              <Edit className="h-5 w-5" />
+                                            </Button>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                                {isEditor && !isOwner && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="mt-8 h-12 px-8 rounded-2xl border-dashed border-2 hover:border-primary hover:bg-primary/5 font-black text-sm transition-all"
+                                    onClick={() => openEditor(row.id, row.name, format(new Date(), 'yyyy-MM-dd'))}
+                                  >
+                                    Add Manual Entry
+                                  </Button>
                                 )}
-                              </td>
-                            </tr>
-                            {expandedUsers[row.id] && (
-                              <tr>
-                                 <td colSpan={4} className="p-0 bg-muted/5 border-b">
-                                    <div className="p-4 pl-4 sm:pl-16 overflow-x-auto">
-                                       {row.dailyRecords.length > 0 ? (
-                                          <table className="w-full text-xs text-left border rounded-md overflow-hidden shadow-sm bg-background min-w-[800px]">
-                                             <thead className="bg-muted/30 text-muted-foreground uppercase">
-                                                <tr>
-                                                   <th className="px-4 py-2 font-medium">Date</th>
-                                                   <th className="px-4 py-2 font-medium">Clock In</th>
-                                                   <th className="px-4 py-2 font-medium">Device</th>
-                                                   <th className="px-4 py-2 font-medium text-amber-600">Lunch Out</th>
-                                                   <th className="px-4 py-2 font-medium text-emerald-600">Lunch In</th>
-                                                   <th className="px-4 py-2 font-medium">Lunch Total</th>
-                                                   <th className="px-4 py-2 font-medium">Lunch Loc</th>
-                                                   <th className="px-4 py-2 font-medium">Clock Out</th>
-                                                   <th className="px-4 py-2 font-medium text-right">Daily Hrs</th>
-                                                   <th className="px-4 py-2 font-medium text-right">Actions</th>
-                                                </tr>
-                                             </thead>
-                                             <tbody className="divide-y divide-border">
-                                                {row.dailyRecords.map((dr, idx) => (
-                                                   <tr key={idx} className="hover:bg-muted/10 group/row">
-                                                      <td className="px-4 py-2 font-medium">{dr.dateStr}</td>
-                                                      <td className="px-4 py-2">
-                                                        {dr.clockIn ? (
-                                                          <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-emerald-500" />{format(new Date(dr.clockIn), 'h:mm a')}</span>
-                                                        ) : '-'}
-                                                      </td>
-                                                      <td className="px-4 py-2 text-muted-foreground">{dr.deviceType}</td>
-                                                      <td className="px-4 py-2 text-amber-600">{dr.breakStart ? format(new Date(dr.breakStart), 'h:mm a') : '-'}</td>
-                                                      <td className="px-4 py-2 text-emerald-600">{dr.breakEnd ? format(new Date(dr.breakEnd), 'h:mm a') : '-'}</td>
-                                                      <td className="px-4 py-2 font-medium text-slate-600">
-                                                          {dr.lunchDurationHours > 0 ? formatDuration(dr.lunchDurationHours) : '-'}
-                                                      </td>
-                                                      <td className="px-4 py-2">
-                                                         {dr.lunchLocation === 'Off-Property' ? (
-                                                            <Badge variant="destructive" className="text-[10px] px-1.5 py-0 h-4 bg-rose-500/10 text-rose-600 border-none flex items-center w-fit">
-                                                              <AlertTriangle className="w-3 h-3 mr-1" /> Off-Property
-                                                            </Badge>
-                                                         ) : dr.lunchLocation === 'On-Property' ? (
-                                                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 bg-emerald-500/10 text-emerald-600 border-none">On-Property</Badge>
-                                                         ) : '-'}
-                                                      </td>
-                                                      <td className="px-4 py-2">
-                                                        {dr.clockOut ? (
-                                                          <span className="flex items-center gap-1"><Clock className="w-3 h-3 text-slate-500" />{format(new Date(dr.clockOut), 'h:mm a')}</span>
-                                                        ) : '-'}
-                                                      </td>
-                                                      <td className="px-4 py-2 text-right">
-                                                        <div className="font-medium text-sm">{dr.totalHours.toFixed(2)}h</div>
-                                                        <div className="text-[10px] text-muted-foreground">{formatDuration(dr.totalHours)}</div>
-                                                      </td>
-                                                      <td className="px-4 py-2 text-right">
-                                                        {isManagerOrAdmin && (
-                                                          <Button 
-                                                            variant="ghost" 
-                                                            size="icon" 
-                                                            className="h-7 w-7 text-muted-foreground hover:text-primary opacity-0 group-hover/row:opacity-100 transition-opacity"
-                                                            onClick={(e) => {
-                                                              e.stopPropagation();
-                                                              openEditor(row.id, row.name, dr.dateStr);
-                                                            }}
-                                                            title="Edit Punches"
-                                                          >
-                                                            <Edit className="h-3.5 w-3.5" />
-                                                          </Button>
-                                                        )}
-                                                      </td>
-                                                   </tr>
-                                                ))}
-                                             </tbody>
-                                          </table>
-                                       ) : (
-                                          <div className="text-muted-foreground text-sm italic py-2">No entries for this period.</div>
-                                       )}
-                                       {isManagerOrAdmin && (
-                                          <div className="mt-2 text-right w-full">
-                                             <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => {
-                                               const todayStr = format(new Date(), 'yyyy-MM-dd');
-                                               openEditor(row.id, row.name, todayStr);
-                                             }}>
-                                               <Edit className="h-3 w-3 mr-1.5" /> Edit / Add Manual Entry
-                                             </Button>
-                                          </div>
-                                       )}
-                                    </div>
-                                 </td>
-                              </tr>
-                            )}
-                          </React.Fragment>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <Users className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                    <h3 className="text-lg font-medium">No Activity Found</h3>
-                    <p className="text-muted-foreground mt-1 max-w-sm">
-                      There are no time punches for any employee matching the selected period.
-                    </p>
-                  </div>
-                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    ))}
+                    {reportData.length === 0 && (
+                        <tr>
+                            <td colSpan={4} className="p-20 text-center text-muted-foreground font-black italic text-lg uppercase tracking-widest">
+                                No payroll data recorded for this period.
+                            </td>
+                        </tr>
+                    )}
+                  </tbody>
+                </table>
               </TabsContent>
-              <TabsContent value="tasks" className="m-0">
-                {taskReportData.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm text-left">
-                      <thead className="text-xs text-muted-foreground uppercase bg-muted/20 border-b">
-                        <tr>
-                          <th className="px-6 py-4 font-semibold">Employee</th>
-                          <th className="px-6 py-4 font-semibold text-center">Assigned</th>
-                          <th className="px-6 py-4 font-semibold text-center text-emerald-600">Completed</th>
-                          <th className="px-6 py-4 font-semibold text-center text-amber-600">In Progress</th>
-                          <th className="px-6 py-4 font-semibold text-center text-slate-500">Pending</th>
-                          <th className="px-6 py-4 font-semibold text-right">Completion Rate</th>
-                          <th className="px-6 py-4 font-semibold text-right">Time Spent</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y">
-                        {taskReportData.map((row) => {
-                          const completionRate = row.assigned > 0 ? (row.completed / row.assigned) * 100 : 0;
-                          return (
-                            <tr key={row.id} className="hover:bg-muted/10 transition-colors">
-                              <td className="px-6 py-4 font-medium text-foreground flex items-center gap-3">
-                                <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs shrink-0">
-                                  {row.name.substring(0, 2).toUpperCase()}
-                                </div>
-                                <div className="flex flex-col">
-                                  <span className="truncate">{row.name}</span>
-                                  <span className="text-xs text-muted-foreground capitalize">{row.role}</span>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 text-center font-medium">
-                                {row.assigned}
-                              </td>
-                              <td className="px-6 py-4 text-center font-medium text-emerald-600">
-                                {row.completed}
-                              </td>
-                              <td className="px-6 py-4 text-center font-medium text-amber-600">
-                                {row.inProgress}
-                              </td>
-                              <td className="px-6 py-4 text-center font-medium text-slate-500">
-                                {row.pending}
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                <div className="flex items-center justify-end gap-2">
-                                  <div className="w-full max-w-[60px] h-2 bg-muted rounded-full overflow-hidden">
-                                    <div 
-                                      className={`h-full ${completionRate === 100 ? 'bg-emerald-500' : completionRate > 50 ? 'bg-blue-500' : 'bg-amber-500'}`} 
-                                      style={{ width: `${completionRate}%` }}
-                                    />
-                                  </div>
-                                  <span className="font-semibold text-sm w-10">{completionRate.toFixed(0)}%</span>
-                                </div>
-                              </td>
-                              <td className="px-6 py-4 text-right">
-                                {row.totalTimeHours > 0 ? (
-                                  <div className="flex flex-col items-end">
-                                    <span className="font-semibold text-base">
-                                      {row.totalTimeHours.toFixed(2)}h
-                                    </span>
-                                    <span className="text-xs text-muted-foreground font-medium">{formatDuration(row.totalTimeHours)}</span>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col items-end">
-                                    <span className="text-muted-foreground font-semibold text-base">0.00h</span>
-                                    <span className="text-xs text-muted-foreground font-medium">0h 0m</span>
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center justify-center py-16 text-center">
-                    <ListTodo className="h-12 w-12 text-muted-foreground/30 mb-4" />
-                    <h3 className="text-lg font-medium">No Tasks Found</h3>
-                    <p className="text-muted-foreground mt-1 max-w-sm">
-                      There are no tasks assigned to any employee matching the selected period.
-                    </p>
-                  </div>
-                )}
+              <TabsContent value="tasks" className="m-0 overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-muted/10 border-b text-[10px] uppercase font-black tracking-widest text-muted-foreground">
+                    <tr><th className="p-8">Employee</th><th className="p-8 text-center">Assigned Duties</th><th className="p-8 text-center">Completion Rate</th><th className="p-8 text-right">Operational Time</th></tr>
+                  </thead>
+                  <tbody className="divide-y border-b border-border/40">
+                    {taskReportData.map((row) => (
+                      <tr key={row.id} className="hover:bg-muted/10 transition-colors">
+                        <td className="p-8 font-black text-lg text-slate-900 dark:text-white">{row.name}</td>
+                        <td className="p-8 text-center font-black text-lg">{row.assigned}</td>
+                        <td className="p-8 text-center">
+                           <div className="flex flex-col items-center justify-center gap-2">
+                              <span className="text-emerald-600 font-black text-lg">{row.assigned > 0 ? Math.round((row.completed / row.assigned) * 100) : 0}%</span>
+                              <div className="w-32 h-2 bg-muted rounded-full overflow-hidden shadow-inner">
+                                <div className="h-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] transition-all duration-1000" style={{ width: `${row.assigned > 0 ? (row.completed / row.assigned) * 100 : 0}%` }} />
+                              </div>
+                           </div>
+                        </td>
+                        <td className="p-8 text-right font-black text-2xl text-primary">{row.totalTimeHours.toFixed(1)}h</td>
+                      </tr>
+                    ))}
+                    {taskReportData.length === 0 && (
+                         <tr>
+                             <td colSpan={4} className="p-20 text-center text-muted-foreground font-black italic text-lg uppercase tracking-widest">
+                                 No performance metrics found.
+                             </td>
+                         </tr>
+                    )}
+                  </tbody>
+                </table>
               </TabsContent>
             </CardContent>
-            {((currentTab === 'timesheets' && reportData.length > 0) || (currentTab === 'tasks' && taskReportData.length > 0)) && (
-              <CardFooter className="bg-muted/10 border-t p-4 flex justify-between text-xs text-muted-foreground">
-                <span>Showing {currentTab === 'timesheets' ? reportData.length : taskReportData.length} records</span>
-                {currentTab === 'timesheets' && (
-                  <span className="flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Click rows to expand daily logs
-                  </span>
-                )}
-              </CardFooter>
-            )}
           </Card>
         </Tabs>
         <DailyTimeEditorModal
@@ -682,6 +386,9 @@ export function ReportsPage() {
           userName={editorUserName}
           dateStr={editorDateStr}
         />
+        <div className="text-center pt-10 text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+           Built with ❤️ by Aurelia | Your AI Co-founder
+        </div>
       </div>
     </AppLayout>
   );

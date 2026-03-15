@@ -15,7 +15,9 @@ import {
   CloudOff,
   DollarSign,
   Layers,
-  Lock
+  Lock,
+  Download,
+  Share2
 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
@@ -89,22 +91,22 @@ export function HelpPage() {
               <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold">1. Standalone Mode (Free)</h3>
-                  <Badge className="bg-emerald-400 text-emerald-950 hover:bg-emerald-400">Recommended for Individuals</Badge>
+                  <Badge className="bg-emerald-400 text-emerald-950 hover:bg-emerald-400 border-none">Recommended for Individuals</Badge>
                 </div>
                 <p className="text-blue-50 text-sm leading-relaxed mb-6">
                   In this mode, the application stores all data locally in your browser (LocalStorage). It uses Cloudflare only to "host" the website files, which is 100% free forever.
                 </p>
                 <ul className="space-y-3 mb-8 flex-1">
                   <li className="flex items-start gap-2 text-sm">
-                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5" />
+                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400" />
                     <span><strong>Cost:</strong> $0.00 / month</span>
                   </li>
                   <li className="flex items-start gap-2 text-sm">
-                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5" />
+                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400" />
                     <span><strong>Privacy:</strong> Data stays on your device</span>
                   </li>
                   <li className="flex items-start gap-2 text-sm text-white/70">
-                    <CloudOff className="h-4 w-4 shrink-0 mt-0.5" />
+                    <CloudOff className="h-4 w-4 shrink-0 mt-0.5 text-emerald-400/50" />
                     <span><strong>Limit:</strong> Data doesn't sync across different phones or computers</span>
                   </li>
                 </ul>
@@ -115,22 +117,22 @@ export function HelpPage() {
               <div className="bg-white/10 backdrop-blur-md border border-white/20 rounded-3xl p-6 md:p-8 flex flex-col">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-xl font-bold">2. Cloud-Sync Mode (Pro)</h3>
-                  <Badge className="bg-blue-300 text-blue-950 hover:bg-blue-300">Enterprise Standard</Badge>
+                  <Badge className="bg-blue-300 text-blue-950 hover:bg-blue-300 border-none">Enterprise Standard</Badge>
                 </div>
                 <p className="text-blue-50 text-sm leading-relaxed mb-6">
                   This uses Cloudflare's "Durable Objects" database to sync data in real-time across all team members' devices globally.
                 </p>
                 <ul className="space-y-3 mb-8 flex-1">
                   <li className="flex items-start gap-2 text-sm">
-                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5" />
+                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5 text-blue-300" />
                     <span><strong>Cost:</strong> $5.00 / month (Paid to Cloudflare)</span>
                   </li>
                   <li className="flex items-start gap-2 text-sm">
-                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5" />
+                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5 text-blue-300" />
                     <span><strong>Benefit:</strong> Instant team-wide synchronization</span>
                   </li>
                   <li className="flex items-start gap-2 text-sm">
-                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5" />
+                    <CheckSquare className="h-4 w-4 shrink-0 mt-0.5 text-blue-300" />
                     <span><strong>Safety:</strong> Real-time cloud backups on Cloudflare's edge</span>
                   </li>
                 </ul>
@@ -140,6 +142,53 @@ export function HelpPage() {
               </div>
             </div>
           </div>
+        </div>
+        {/* Data Portability Section */}
+        <div className="mt-16 bg-card border rounded-[2.5rem] p-8 md:p-12 shadow-sm">
+            <div className="flex items-center gap-3 mb-6">
+              <div className="bg-primary/10 p-2 rounded-lg text-primary">
+                <Share2 className="h-6 w-6" />
+              </div>
+              <h2 className="text-2xl md:text-3xl font-bold tracking-tight">Data Portability & Backups</h2>
+            </div>
+            <div className="grid md:grid-cols-3 gap-8">
+                <div className="space-y-4">
+                    <div className="h-12 w-12 bg-emerald-50 rounded-xl flex items-center justify-center text-emerald-600">
+                        <Download className="h-6 w-6" />
+                    </div>
+                    <h3 className="font-bold text-lg">Full Manual Backups</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                        At any time, administrators can download the entire application state as a single JSON file. This includes all tasks, employees, and settings.
+                    </p>
+                </div>
+                <div className="space-y-4">
+                    <div className="h-12 w-12 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
+                        <Zap className="h-6 w-6" />
+                    </div>
+                    <h3 className="font-bold text-lg">Switch Modes Easily</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                        Moving from Standalone to Cloud-Sync? Simply download your backup in Standalone mode, enable Cloud-Sync, and upload the file to migrate your data instantly.
+                    </p>
+                </div>
+                <div className="space-y-4">
+                    <div className="h-12 w-12 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600">
+                        <MonitorSmartphone className="h-6 w-6" />
+                    </div>
+                    <h3 className="font-bold text-lg">Cross-Device Transfer</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed">
+                        Even in free Standalone mode, you can move your data between computers or browsers manually using the Backup utility.
+                    </p>
+                </div>
+            </div>
+            <div className="mt-10 p-4 bg-muted/40 rounded-2xl border flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <Database className="h-5 w-5 text-primary" />
+                    <span className="text-sm font-medium">Ready to manage your data?</span>
+                </div>
+                <Button asChild variant="outline" size="sm">
+                    <Link to="/debug">Go to Backup Utility</Link>
+                </Button>
+            </div>
         </div>
         {/* Core Modules Grid */}
         <div>
@@ -155,7 +204,7 @@ export function HelpPage() {
                     <div className="p-3 bg-muted rounded-xl group-hover:scale-110 transition-transform duration-300">
                       {feature.icon}
                     </div>
-                    <Badge variant="secondary" className="font-medium bg-muted/50">
+                    <Badge variant="secondary" className="font-medium bg-muted/50 border-none">
                       {feature.badge}
                     </Badge>
                   </div>

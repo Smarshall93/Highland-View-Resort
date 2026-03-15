@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { api } from '@/lib/api-client';
-import type { Task, TimeEntry, User, WorkLocation, QRForm, WorkSite, Shift, ChatMessage, Chat } from '@shared/types';
-import { useAuthStore } from '@/store/authStore';
+import type { Task, TimeEntry, User, WorkLocation, QRForm, WorkSite, Shift, ChatMessage, Chat, ResortSettings } from '@shared/types';
 interface DataState {
   tasks: Task[];
   timeEntries: TimeEntry[];
@@ -12,6 +11,7 @@ interface DataState {
   workSites: WorkSite[];
   shifts: Shift[];
   messages: ChatMessage[];
+  resortSettings: ResortSettings;
   lastSynced: number;
   lastDailySync: number;
   isSyncing: boolean;
@@ -20,6 +20,7 @@ interface DataState {
   setCloudSyncEnabled: (enabled: boolean) => void;
   syncData: (userId?: string, role?: string, force?: boolean) => Promise<void>;
   triggerDailyTasksSync: () => Promise<void>;
+  updateResortSettings: (updates: Partial<ResortSettings>) => Promise<void>;
   addTaskLocal: (task: Task) => void;
   updateTaskLocal: (id: string, updates: Partial<Task>) => void;
   deleteTaskLocal: (id: string) => void;
@@ -37,8 +38,22 @@ interface DataState {
   updateShiftLocal: (id: string, updates: Partial<Shift>) => void;
   deleteShiftLocal: (id: string) => void;
   addMessageLocal: (msg: ChatMessage) => void;
+  importFullState: (data: Partial<DataState>) => void;
   clearLocalData: () => void;
+  getFormsByCategory: () => Record<string, QRForm[]>;
 }
+const DEFAULT_SETTINGS: ResortSettings = {
+  id: 'global',
+  resortName: 'Highland View Resort',
+  workDayStart: '06:00',
+  workDayEnd: '23:00',
+  geofenceSensitivity: 'medium',
+  allowManualPunchBypass: true,
+  requireFaceIdGlobally: true,
+  autoArchiveCompletedTasksDays: 30,
+  strictOvertimeBlocking: false,
+  timezone: 'EST'
+};
 const activeSyncPromises = new Map<string, Promise<void>>();
 const lastRequestIds = new Map<string, number>();
 export const useDataStore = create<DataState>()(
@@ -52,6 +67,7 @@ export const useDataStore = create<DataState>()(
       workSites: [],
       shifts: [],
       messages: [],
+      resortSettings: DEFAULT_SETTINGS,
       lastSynced: 0,
       lastDailySync: 0,
       isSyncing: false,
@@ -61,32 +77,31 @@ export const useDataStore = create<DataState>()(
       syncData: async (userId?: string, role?: string, force?: boolean) => {
         if (!get().cloudSyncEnabled) return Promise.resolve();
         const syncKey = `${userId || 'anon'}-${role || 'none'}`;
+        const currentReqId = (lastRequestIds.get(syncKey) || 0) + 1;
         if (!force && activeSyncPromises.has(syncKey)) return activeSyncPromises.get(syncKey);
-        const requestId = (lastRequestIds.get(syncKey) || 0) + 1;
-        lastRequestIds.set(syncKey, requestId);
+        lastRequestIds.set(syncKey, currentReqId);
         const promise = (async () => {
           set((state) => ({ syncCount: state.syncCount + 1, isSyncing: true }));
           try {
             const cb = `_cb=${Date.now()}`;
-            let tasksUrl = `/api/tasks?limit=1000&${cb}`;
             let timeUrl = `/api/time-entries?limit=1000&${cb}`;
             let shiftsUrl = `/api/shifts?${cb}`;
             if (role === 'employee' && userId) {
-              tasksUrl += `&assignee=${userId}`;
               timeUrl += `&userId=${userId}`;
               shiftsUrl += `&userId=${userId}`;
             }
-            const [tasksRes, timeRes, usersRes, locsRes, qrRes, sitesRes, shiftsRes, chatRes] = await Promise.all([
-              api<{items: Task[]}>(tasksUrl),
+            const [tasksRes, timeRes, usersRes, locsRes, qrRes, sitesRes, shiftsRes, chatRes, settingsRes] = await Promise.all([
+              api<{items: Task[]}>(`/api/tasks?limit=1000&${cb}`),
               api<{items: TimeEntry[]}>(timeUrl),
-              api<{items: User[]}>('/api/users?limit=100'),
+              api<{items: User[]}>('/api/users?limit=1000'),
               api<{items: WorkLocation[]}>('/api/locations?limit=100'),
-              api<{items: QRForm[]}>('/api/qr-forms?limit=100'),
+              api<{items: QRForm[]}>('/api/qr-forms?limit=1000'),
               api<{items: WorkSite[]}>('/api/work-sites?limit=100'),
               api<{items: Shift[]}>(shiftsUrl),
-              api<Chat & { messages: ChatMessage[] }>('/api/chats')
+              api<Chat & { messages: ChatMessage[] }>('/api/chats'),
+              api<ResortSettings>('/api/settings').catch(() => DEFAULT_SETTINGS)
             ]);
-            if (requestId === lastRequestIds.get(syncKey)) {
+            if (currentReqId === lastRequestIds.get(syncKey)) {
               set({
                 tasks: tasksRes.items || [],
                 timeEntries: timeRes.items || [],
@@ -96,11 +111,12 @@ export const useDataStore = create<DataState>()(
                 workSites: sitesRes.items || [],
                 shifts: shiftsRes.items || [],
                 messages: chatRes.messages || [],
+                resortSettings: settingsRes || DEFAULT_SETTINGS,
                 lastSynced: Date.now()
               });
             }
           } catch (err) {
-            console.error('Data Sync Error:', err);
+            console.error('[SYNC ERROR] Data sync failed:', err);
           } finally {
             activeSyncPromises.delete(syncKey);
             set((state) => {
@@ -112,6 +128,18 @@ export const useDataStore = create<DataState>()(
         activeSyncPromises.set(syncKey, promise);
         return promise;
       },
+      updateResortSettings: async (updates) => {
+        set(state => ({ resortSettings: { ...state.resortSettings, ...updates } }));
+        try {
+          const updated = await api<ResortSettings>('/api/settings', {
+            method: 'PATCH',
+            body: JSON.stringify(updates)
+          });
+          set({ resortSettings: updated });
+        } catch (err) {
+          console.error('[SETTINGS] Failed to sync settings to cloud:', err);
+        }
+      },
       triggerDailyTasksSync: async () => {
         if (!get().cloudSyncEnabled) return;
         const now = Date.now();
@@ -120,7 +148,7 @@ export const useDataStore = create<DataState>()(
             await api('/api/tasks/daily-sync', { method: 'POST' });
             set({ lastDailySync: now });
             await get().syncData(undefined, undefined, true);
-          } catch (err) { console.error(err); }
+          } catch (err) { console.error('[DAILY SYNC] Failed:', err); }
         }
       },
       addTaskLocal: (task) => set((state) => ({ tasks: [task, ...state.tasks] })),
@@ -152,11 +180,48 @@ export const useDataStore = create<DataState>()(
       })),
       deleteShiftLocal: (id) => set((state) => ({ shifts: state.shifts.filter(s => s.id !== id) })),
       addMessageLocal: (msg) => set((state) => ({ messages: [...state.messages, msg].slice(-200) })),
-      clearLocalData: () => set({ tasks: [], timeEntries: [], users: [], locations: [], qrForms: [], workSites: [], shifts: [], messages: [], lastSynced: 0, lastDailySync: 0, isSyncing: false, syncCount: 0 })
+      importFullState: (data) => set((state) => ({
+        tasks: data.tasks ?? state.tasks,
+        timeEntries: data.timeEntries ?? state.timeEntries,
+        users: data.users ?? state.users,
+        locations: data.locations ?? state.locations,
+        qrForms: data.qrForms ?? state.qrForms,
+        workSites: data.workSites ?? state.workSites,
+        shifts: data.shifts ?? state.shifts,
+        messages: data.messages ?? state.messages,
+        resortSettings: data.resortSettings ?? state.resortSettings,
+        lastSynced: Date.now()
+      })),
+      clearLocalData: () => set({
+        tasks: [],
+        timeEntries: [],
+        users: [],
+        locations: [],
+        qrForms: [],
+        workSites: [],
+        shifts: [],
+        messages: [],
+        resortSettings: DEFAULT_SETTINGS,
+        lastSynced: 0,
+        lastDailySync: 0,
+        isSyncing: false,
+        syncCount: 0
+      }),
+      getFormsByCategory: () => {
+        const { qrForms } = get();
+        const cats: Record<string, QRForm[]> = {};
+        qrForms.forEach(f => {
+          const cat = f.category || 'General';
+          if (!cats[cat]) cats[cat] = [];
+          cats[cat].push(f);
+        });
+        return cats;
+      }
     }),
     {
-      name: 'synqwork-data-storage',
-      storage: createJSONStorage(() => sessionStorage),
+      name: 'synqwork-data-storage-v4',
+      version: 4,
+      storage: createJSONStorage(() => localStorage),
       partialize: (state) => {
         const { isSyncing, syncCount, ...rest } = state;
         return rest;

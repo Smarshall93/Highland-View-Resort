@@ -4,6 +4,7 @@
  * Look at the \`worker/entities.ts\` file for examples on how to use this library
  */
 import type { ApiResponse } from "@shared/types";
+export { exportTypes } from "./entities";
 import { DurableObject } from "cloudflare:workers"; // DO NOT MODIFY THIS LINE. This is always already installed and available
 import type { Context } from "hono";
 

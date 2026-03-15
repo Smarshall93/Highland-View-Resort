@@ -37,6 +37,7 @@ import { WorkSitesPage } from '@/pages/WorkSitesPage';
 import { SchedulePage } from '@/pages/SchedulePage';
 import { ChatPage } from '@/pages/ChatPage';
 import { QRPrintStationPage } from '@/pages/QRPrintStationPage';
+import { SettingsPage } from '@/pages/SettingsPage';
 const queryClient = new QueryClient();
 const router = createBrowserRouter([
   { path: "/login", element: <LoginPage />, errorElement: <RouteErrorBoundary /> },
@@ -55,6 +56,7 @@ const router = createBrowserRouter([
   { path: "/kiosk", element: <KioskModePage />, errorElement: <RouteErrorBoundary /> },
   { path: "/help", element: <HelpPage />, errorElement: <RouteErrorBoundary /> },
   { path: "/debug", element: <DebugPage />, errorElement: <RouteErrorBoundary /> },
+  { path: "/settings", element: <SettingsPage />, errorElement: <RouteErrorBoundary /> },
   { path: "/reports", element: <ReportsPage />, errorElement: <RouteErrorBoundary /> },
   { path: "/profile", element: <ProfilePage />, errorElement: <RouteErrorBoundary /> }
 ]);

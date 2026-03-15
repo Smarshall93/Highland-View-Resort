@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Terminal, Server, Shield, Database, Activity, RefreshCw, FileJson, Copy, Trash2, LogOut, Wrench, CloudOff, CloudRain, Zap, Info, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { Terminal, Server, Shield, Database, Activity, RefreshCw, FileJson, Copy, Trash2, LogOut, Wrench, CloudOff, Info, Download, Upload, ShieldCheck, AlertTriangle, ListChecks, Clock, MapPin, CheckCircle2 } from 'lucide-react';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -14,19 +14,29 @@ import { format } from 'date-fns';
 import { toast } from '@/lib/toast';
 import { Link } from 'react-router-dom';
 export function DebugPage() {
-    const user = useAuthStore(s => s.user);
+    const userId = useAuthStore(s => s.user?.id);
+    const userRole = useAuthStore(s => s.user?.role);
+    const userName = useAuthStore(s => s.user?.name);
+    const userEmail = useAuthStore(s => s.user?.email);
     const expiresAt = useAuthStore(s => s.expiresAt);
-    const clearLocalData = useDataStore(s => s.clearLocalData);
+    const tasks = useDataStore(s => s.tasks);
+    const timeEntries = useDataStore(s => s.timeEntries);
+    const locations = useDataStore(s => s.locations);
+    const workSites = useDataStore(s => s.workSites);
+    const qrForms = useDataStore(s => s.qrForms);
+    const importAuthData = useAuthStore(s => s.importAuthData);
     const syncData = useDataStore(s => s.syncData);
     const cloudSyncEnabled = useDataStore(s => s.cloudSyncEnabled);
     const setCloudSyncEnabled = useDataStore(s => s.setCloudSyncEnabled);
+    const importFullState = useDataStore(s => s.importFullState);
     const [debugData, setDebugData] = useState<any>(null);
     const [dbDump, setDbDump] = useState<any>(null);
     const [loading, setLoading] = useState(true);
     const [dumpLoading, setDumpLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [dumpError, setDumpError] = useState<string | null>(null);
-    const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'manager';
+    const fileInputRef = useRef<HTMLInputElement>(null);
+    const isManagerOrAdmin = userRole === 'admin' || userRole === 'manager' || userRole === 'owner';
     const fetchDebugData = async () => {
         if (!cloudSyncEnabled) {
             setDebugData({ status: 'STANDALONE', timestamp: new Date().toISOString(), standalone: true });
@@ -46,7 +56,7 @@ export function DebugPage() {
     };
     const fetchDbDump = async () => {
         if (!cloudSyncEnabled) {
-            setDbDump({ message: "Database dump is unavailable in Standalone Mode. Data is stored in your browser's SessionStorage." });
+            setDbDump({ message: "Database dump is unavailable in Standalone Mode. Data is stored in your browser's localStorage." });
             setDumpLoading(false);
             return;
         }
@@ -80,6 +90,71 @@ export function DebugPage() {
             window.location.replace('/');
         }
     };
+    const handleDownloadBackup = () => {
+        const dataState = useDataStore.getState();
+        const authState = useAuthStore.getState();
+        const backup = {
+            version: "1.0",
+            timestamp: Date.now(),
+            auth: {
+                user: authState.user,
+                expiresAt: authState.expiresAt
+            },
+            data: {
+                tasks: dataState.tasks,
+                timeEntries: dataState.timeEntries,
+                users: dataState.users,
+                locations: dataState.locations,
+                qrForms: dataState.qrForms,
+                workSites: dataState.workSites,
+                shifts: dataState.shifts,
+                messages: dataState.messages
+            }
+        };
+        const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        const dateStr = format(new Date(), 'yyyy-MM-dd-HHmm');
+        link.href = url;
+        link.download = `highlandview-backup-${dateStr}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        toast.success("Backup downloaded successfully.");
+    };
+    const handleUploadBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const content = event.target?.result as string;
+                const backup = JSON.parse(content);
+                if (!backup.data || !backup.auth) {
+                    throw new Error("Invalid backup file structure.");
+                }
+                if (window.confirm("This will replace your current local data with the contents of the backup. Continue?")) {
+                    importFullState(backup.data);
+                    importAuthData(backup.auth);
+                    toast.success("Backup restored successfully!", {
+                        description: "Your session and data have been updated."
+                    });
+                    if (fileInputRef.current) fileInputRef.current.value = '';
+                }
+            } catch (err: any) {
+                console.error("Restore failed:", err);
+                toast.error("Failed to restore backup: " + (err.message || "Invalid JSON"));
+            }
+        };
+        reader.readAsText(file);
+    };
+    const auditStats = useMemo(() => [
+        { label: 'Tasks Protected', count: tasks.length, icon: ListChecks, color: 'text-blue-500' },
+        { label: 'Time Logs Saved', count: timeEntries.length, icon: Clock, color: 'text-emerald-500' },
+        { label: 'Places Tracked', count: workSites.length + locations.length, icon: MapPin, color: 'text-amber-500' },
+        { label: 'QR Settings', count: qrForms.length, icon: Database, color: 'text-purple-500' }
+    ], [tasks, timeEntries, workSites, locations, qrForms]);
     if (!isManagerOrAdmin) {
         return (
             <AppLayout>
@@ -101,7 +176,7 @@ export function DebugPage() {
                             System Diagnostics
                         </h1>
                         <p className="text-muted-foreground mt-1">
-                            Monitor application health, server environment, and client state.
+                            Monitor application health, server environment, and local storage resilience.
                         </p>
                     </div>
                     <div className="flex gap-2">
@@ -115,6 +190,21 @@ export function DebugPage() {
                         </Button>
                     </div>
                 </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {auditStats.map((stat, i) => (
+                        <Card key={i} className="border-none bg-slate-50 dark:bg-slate-900 shadow-sm">
+                            <CardContent className="p-4 flex items-center gap-4">
+                                <div className={`p-2 rounded-lg bg-white dark:bg-slate-800 shadow-sm ${stat.color}`}>
+                                    <stat.icon className="h-5 w-5" />
+                                </div>
+                                <div>
+                                    <p className="text-2xl font-black leading-none">{stat.count}</p>
+                                    <p className="text-[10px] uppercase font-bold text-muted-foreground mt-1">{stat.label}</p>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
                 <Tabs defaultValue="actions" className="w-full">
                     <TabsList className="mb-6 flex-wrap h-auto">
                         <TabsTrigger value="actions" className="flex items-center gap-2"><Wrench className="w-4 h-4"/> System Actions</TabsTrigger>
@@ -123,85 +213,89 @@ export function DebugPage() {
                     </TabsList>
                     <TabsContent value="actions" className="space-y-6">
                         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {/* NEW: Standalone / Free Toggle */}
-                            <Card className="shadow-md border-t-4 border-t-primary overflow-hidden relative">
-                                <div className="absolute top-2 right-2">
-                                    <Zap className="h-5 w-5 text-primary/20" />
-                                </div>
+                            {/* Backup & Restore Utility */}
+                            <Card className="shadow-md border-t-4 border-t-primary overflow-hidden col-span-1 md:col-span-2 lg:col-span-1">
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2">
-                                        <CloudOff className="h-5 w-5 text-primary" />
-                                        Data Architecture
+                                        <Database className="h-5 w-5 text-primary" />
+                                        Backup & Restore
                                     </CardTitle>
-                                    <CardDescription>Toggle between Cloud-Sync and Standalone mode</CardDescription>
+                                    <CardDescription>Export your entire system state to a file</CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
-                                    <div className="flex items-center justify-between p-3 bg-muted/30 rounded-lg border">
-                                        <div className="space-y-0.5">
-                                            <Label htmlFor="cloud-sync" className="text-sm font-bold">Cloud Synchronization</Label>
-                                            <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">
-                                                {cloudSyncEnabled ? 'Enterprise Sync Active' : 'Standalone Mode Active'}
+                                    <div className="p-4 bg-muted/30 rounded-xl border border-dashed flex flex-col gap-4">
+                                        <div className="space-y-1">
+                                            <h4 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                                                <Download className="w-4 h-4 text-primary" /> Export Data
+                                            </h4>
+                                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                                Download a JSON file containing all tasks, users, time entries, and configurations.
                                             </p>
                                         </div>
-                                        <Switch 
-                                            id="cloud-sync" 
-                                            checked={cloudSyncEnabled} 
-                                            onCheckedChange={(checked) => {
-                                                setCloudSyncEnabled(checked);
-                                                toast.info(checked ? 'Cloud Sync Enabled' : 'Standalone Mode Activated', {
-                                                    description: checked 
-                                                        ? 'Data will now sync across all team devices.' 
-                                                        : 'Data will now only be saved locally to this browser.'
-                                                });
-                                            }}
-                                        />
+                                        <Button onClick={handleDownloadBackup} variant="outline" className="w-full bg-background shadow-sm hover:shadow-md transition-all">
+                                            Download Backup (.json)
+                                        </Button>
                                     </div>
-                                    <div className="text-xs text-muted-foreground leading-relaxed flex flex-col gap-2">
-                                        <p><strong>Cloud-Sync Mode:</strong> Requires Cloudflare Workers Paid plan ($5/mo). Synchronizes your whole team globally.</p>
-                                        <p><strong>Standalone Mode:</strong> 100% Free deployment. Data is saved locally to this device only.</p>
+                                    <div className="p-4 bg-muted/30 rounded-xl border border-dashed flex flex-col gap-4">
+                                        <div className="space-y-1">
+                                            <h4 className="text-sm font-bold flex items-center gap-2 text-foreground">
+                                                <Upload className="w-4 h-4 text-emerald-500" /> Import Data
+                                            </h4>
+                                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                                Upload a previously exported backup file to restore your entire application state.
+                                            </p>
+                                        </div>
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            onChange={handleUploadBackup}
+                                            accept=".json"
+                                            className="hidden"
+                                        />
+                                        <Button
+                                            onClick={() => fileInputRef.current?.click()}
+                                            variant="secondary"
+                                            className="w-full shadow-sm hover:shadow-md transition-all"
+                                        >
+                                            Upload & Restore File
+                                        </Button>
                                     </div>
                                 </CardContent>
-                                <CardFooter className="bg-muted/10 pt-4 border-t">
-                                    <Button asChild variant="link" size="sm" className="px-0 text-xs gap-1.5 h-auto">
-                                        <Link to="/help">
-                                            <Info className="h-3.5 w-3.5" />
-                                            Learn more about free hosting options
-                                        </Link>
-                                    </Button>
+                                <CardFooter className="bg-amber-50 dark:bg-amber-900/20 pt-4 border-t">
+                                    <div className="flex gap-2 items-start">
+                                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                                        <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium">
+                                            Restoring a backup will overwrite all current local data. Ensure you have saved any important changes before proceeding.
+                                        </p>
+                                    </div>
                                 </CardFooter>
                             </Card>
-                            <Card className="shadow-sm border-t-4 border-t-emerald-500">
+                            <Card className="shadow-md border-t-4 border-t-primary overflow-hidden relative">
                                 <CardHeader>
                                     <CardTitle className="flex items-center gap-2">
-                                        <RefreshCw className="h-5 w-5 text-emerald-500" />
-                                        Force Data Sync
+                                        <ShieldCheck className="h-5 w-5 text-emerald-500" />
+                                        Local Resilience
                                     </CardTitle>
-                                    <CardDescription>Pull the latest data from the server, bypassing local cache</CardDescription>
+                                    <CardDescription>Persistent Data Protection Status</CardDescription>
                                 </CardHeader>
-                                <CardContent>
-                                    <Button onClick={async () => {
-                                        await syncData(user?.id, user?.role, true);
-                                        toast.success('Forced data sync complete');
-                                    }} className="w-full" disabled={!cloudSyncEnabled}>
-                                        Sync Now
-                                    </Button>
-                                </CardContent>
-                            </Card>
-                            <Card className="shadow-sm border-t-4 border-t-amber-500">
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Trash2 className="h-5 w-5 text-amber-500" />
-                                        Clear Local Cache
-                                    </CardTitle>
-                                    <CardDescription>Wipe local Zustand storage without logging out</CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                    <Button onClick={() => {
-                                        clearLocalData();
-                                        toast.success('Local cache cleared');
-                                    }} variant="outline" className="w-full text-amber-600 border-amber-200 hover:bg-amber-50">
-                                        Clear Cache
-                                    </Button>
+                                <CardContent className="space-y-4">
+                                    <div className="flex items-center justify-between p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg border border-emerald-200">
+                                        <div className="space-y-0.5">
+                                            <Label className="text-sm font-bold text-emerald-900 dark:text-emerald-400">LocalStorage Active</Label>
+                                            <p className="text-[10px] text-emerald-700/80 uppercase tracking-wider font-semibold">
+                                                Survives Browser Crashes
+                                            </p>
+                                        </div>
+                                        <div className="h-8 w-8 bg-emerald-500 rounded-full flex items-center justify-center text-white shadow-lg animate-pulse">
+                                            <CheckCircle2 className="h-5 w-5" />
+                                        </div>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground leading-relaxed flex flex-col gap-3">
+                                        <p>Your "hrs, task settings, and places" are now strictly mirrored in the device's persistent storage.</p>
+                                        <Button variant="outline" size="sm" onClick={() => window.location.reload()} className="h-10 font-bold uppercase tracking-widest text-[10px] w-full">
+                                            Force Persistence Flush
+                                        </Button>
+                                    </div>
                                 </CardContent>
                             </Card>
                             <Card className="shadow-sm border-t-4 border-t-destructive">
@@ -278,11 +372,11 @@ export function DebugPage() {
                                     <div className="space-y-4">
                                         <div className="flex justify-between items-center py-2 border-b">
                                             <span className="text-sm font-medium text-muted-foreground">Current User</span>
-                                            <span className="text-sm font-medium">{user?.name} ({user?.email || 'No email'})</span>
+                                            <span className="text-sm font-medium">{userName} ({userEmail || 'No email'})</span>
                                         </div>
                                         <div className="flex justify-between items-center py-2 border-b">
                                             <span className="text-sm font-medium text-muted-foreground">Role</span>
-                                            <Badge variant="outline" className="capitalize">{user?.role}</Badge>
+                                            <Badge variant="outline" className="capitalize">{userRole}</Badge>
                                         </div>
                                         <div className="flex justify-between items-center py-2 border-b">
                                             <span className="text-sm font-medium text-muted-foreground">Session Expiry</span>
@@ -320,9 +414,9 @@ export function DebugPage() {
                                 ) : dbDump ? (
                                     <div className="relative group">
                                         {cloudSyncEnabled && (
-                                            <Button
-                                                variant="secondary"
-                                                size="sm"
+                                            <Button 
+                                                variant="secondary" 
+                                                size="sm" 
                                                 className="absolute top-4 right-4 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
                                                 onClick={handleCopyDump}
                                             >
