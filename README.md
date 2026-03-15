@@ -1,6 +1,6 @@
 # Highlandview Resort (SynqWork) - Comprehensive Workforce Management
 SynqWork is an all-in-one workforce management application inspired by Connecteam, designed to streamline employee operations and customer interactions. It features robust employee time tracking with geolocation, AI-powered verification, and a comprehensive task management system with daily routines, checklists, and forms.
-[aureliabutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2FSmarshall93%2FHighland-View-Resort)
 ## 🚀 Overview
 SynqWork leverages modern cloud architecture combined with a local-first caching strategy to provide a seamless, instantaneous experience for both internal employees and external customers. A key differentiator is the incredibly scalable customer-facing QR code system: the platform supports **over 70 different QR codes and different forms** linked to specific contexts. When a customer submits a form through a QR code, the system **automatically tasks anybody to it**, ensuring immediate routing of requests to the appropriate team member or department.
 ## ✨ Key Features
@@ -56,7 +56,7 @@ SynqWork leverages modern cloud architecture combined with a local-first caching
 -   `shared/`: Shared TypeScript types and mock data
 ## 🚀 Deployment
 The application is designed to be deployed to Cloudflare's global network using their Workers and Durable Objects infrastructure.
-[aureliabutton]
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https%3A%2F%2Fgithub.com%2FSmarshall93%2FHighland-View-Resort)
 ### Manual Deployment
 To deploy the application to your own Cloudflare account:
 ```bash
